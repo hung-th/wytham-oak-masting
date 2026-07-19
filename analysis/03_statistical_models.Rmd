@@ -901,9 +901,9 @@ p_rank_compare <- ggplot(rank_compare,
 
 p_rank_compare
 
-ggsave(file.path(FIG_OUT, "Revision_producer_sensitivity_no2020.pdf"),
+ggsave(file.path(FIG_OUT, "Producer_sensitivity_no2020.pdf"),
        p_rank_compare, width = 100, height = 90, units = "mm")
-ggsave(file.path(FIG_OUT, "Revision_producer_sensitivity_no2020.png"),
+ggsave(file.path(FIG_OUT, "Producer_sensitivity_no2020.png"),
        p_rank_compare, width = 100, height = 90, units = "mm", dpi = 300)
 
 cat("\nNOTE: High Kendall τ indicates producer classifications are robust\n",
@@ -1468,7 +1468,7 @@ knitr::kable(temp_cor_table,
              align = "llrrl")
 
 write.csv(temp_cor_table,
-          file.path(TAB_OUT, "Revision_temporal_climate_correlations.csv"),
+          file.path(TAB_OUT, "Temporal_climate_correlations.csv"),
           row.names = FALSE)
 ```
 
@@ -1518,9 +1518,9 @@ temporal_plot <- (y_label | inner) +
 
 temporal_plot
 
-ggsave(file.path(FIG_OUT,"Revision_temporal_climate_correlations.pdf"),
+ggsave(file.path(FIG_OUT,"Temporal_climate_correlations.pdf"),
        temporal_plot, width=140, height=90, units="mm")
-ggsave(file.path(FIG_OUT,"Revision_temporal_climate_correlations.png"),
+ggsave(file.path(FIG_OUT,"Temporal_climate_correlations.png"),
        temporal_plot, width=140, height=90, units="mm", dpi=300)
 ```
 
@@ -1575,7 +1575,7 @@ knitr::kable(m_mixed_summary,
              align = "lrrrlrrl")
 
 write.csv(m_mixed_summary,
-          file.path(TAB_OUT,"Revision_mixed_effects_GLM_VIZ_COUNT.csv"),
+          file.path(TAB_OUT,"Mixed_effects_GLM_VIZ_COUNT.csv"),
           row.names=FALSE)
 
 sig_fixed <- m_mixed_summary %>%
@@ -1724,7 +1724,7 @@ knitr::kable(glmm_main,
              align = "llllrrrrllrr")
 
 write.csv(glmm_main,
-          file.path(TAB_OUT, "Revision_mixed_effects_GLM_litter_trap.csv"),
+          file.path(TAB_OUT, "Mixed_effects_GLM_litter_trap.csv"),
           row.names = FALSE)
 
 # ── Soil class contrasts: individual dummy coefficients vs Clay (reference)
@@ -1739,7 +1739,7 @@ knitr::kable(soil_contrasts,
              align = "llrrrllrr")
 
 write.csv(soil_contrasts,
-          file.path(TAB_OUT, "Revision_GLMM_ABORTED_soil_contrasts.csv"),
+          file.path(TAB_OUT, "GLMM_ABORTED_soil_contrasts.csv"),
           row.names = FALSE)
 ```
 
@@ -1769,16 +1769,16 @@ corr_plot <- ggcorrplot::ggcorrplot(
 
 corr_plot
 
-ggsave(file.path(FIG_OUT,"Revision_predictor_correlation_matrix.pdf"),
+ggsave(file.path(FIG_OUT,"Predictor_correlation_matrix.pdf"),
        corr_plot, width=140, height=130, units="mm")
-ggsave(file.path(FIG_OUT,"Revision_predictor_correlation_matrix.png"),
+ggsave(file.path(FIG_OUT,"Predictor_correlation_matrix.png"),
        corr_plot, width=140, height=130, units="mm", dpi=300)
 
 cor_df <- as.data.frame(cor_mat) %>%
   rownames_to_column("Variable") %>%
   mutate(across(where(is.numeric), ~round(.x,3)))
 write.csv(cor_df,
-          file.path(TAB_OUT,"Revision_predictor_correlation_matrix.csv"),
+          file.path(TAB_OUT,"Predictor_correlation_matrix.csv"),
           row.names=FALSE)
 
 high_cors <- which(abs(cor_mat)>0.7 & lower.tri(cor_mat), arr.ind=TRUE)
@@ -1830,7 +1830,7 @@ knitr::kable(rank_cors,
              align="lrr")
 
 write.csv(rank_cors,
-          file.path(TAB_OUT,"Revision_rank_stability_across_years.csv"),
+          file.path(TAB_OUT,"Rank_stability_across_years.csv"),
           row.names=FALSE)
 ```
 

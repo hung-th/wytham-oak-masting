@@ -204,7 +204,7 @@ knitr::kable(desc_stats_display,
 
 # Save to outputs
 write.csv(desc_stats_display,
-          file.path(TAB_OUT, "Table_R1_descriptive_statistics_response_vars.csv"),
+          file.path(TAB_OUT, "Table_S1_descriptive_statistics_response_vars.csv"),
           row.names = FALSE)
 ```
 
@@ -594,7 +594,7 @@ knitr::kable(table_r2,
              align = "lrr")
 
 write.csv(table_r2,
-          file.path(TAB_OUT, "Table_R2_variability_synchrony.csv"),
+          file.path(TAB_OUT, "Table_S2_variability_synchrony.csv"),
           row.names = FALSE)
 ```
 
