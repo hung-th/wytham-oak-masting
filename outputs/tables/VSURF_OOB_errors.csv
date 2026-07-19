@@ -1,0 +1,7 @@
+"Response","OOB_MSE_thres","OOB_MSE_interp_min","n_vars_thres","n_vars_interp","Note"
+"VIZ_COUNT",4288.23,3442.79,8,5,"seed 5"
+"MATURE_ACORNS",21.68,16.97,8,2,"seed 2"
+"IMMAT_ACORNS",17.31,14.5,9,7,"seed 36"
+"ABORTED_ACORNS",11.78,9.76,11,5,"seed 10"
+"FLOWERS",509.12,377.01,6,6,"seed 2"
+"GALLS",11.37,8.43,1,1,"seed 42"

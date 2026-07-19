@@ -1,0 +1,6 @@
+"Response","term","estimate","std.error","statistic","p.value","Sig","conf.low","conf.high"
+"ABORTED_ACORNS","SOIL_CLASSClay_Loam",0.3461,0.1632,2.121,"0.0339","*",0.0263,0.666
+"ABORTED_ACORNS","SOIL_CLASSLoamy_Sand",0.7506,0.4118,1.823,"0.0683",".",-0.0565,1.5576
+"ABORTED_ACORNS","SOIL_CLASSSand",0.6275,0.4121,1.523,"0.1279","",-0.1802,1.4351
+"ABORTED_ACORNS","SOIL_CLASSSandy_Clay_Loam",-0.2851,0.2328,-1.225,"0.2207","",-0.7414,0.1712
+"ABORTED_ACORNS","SOIL_CLASSSandy_Loam",0.5428,0.186,2.919,"0.0035","**",0.1783,0.9073

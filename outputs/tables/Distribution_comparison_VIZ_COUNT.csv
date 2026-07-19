@@ -1,0 +1,4 @@
+"Distribution","AIC","KS_p","Disp_ratio","Disp_p","Flag"
+"Gamma+log",404.09,0.8704,0.737,0.948,"OK"
+"Poisson+log",Inf,0,52.95,0,"⚠ VIOLATION"
+"NegBin+log",404.18,0.7615,0.77,0.86,"OK"

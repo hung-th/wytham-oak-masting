@@ -1,0 +1,1056 @@
+---
+title: "Quercus robur Masting GWAS"
+author: "Tin Hang Hung"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    code_folding: hide
+    fig_width: 10
+    fig_height: 6
+params:
+  run_dir:     "."
+  n_label:     "n=37 (all samples)"
+  excl_sample: ""          # set to "Ox002104" for n36
+  k_gwas:      1           # latent factors for LFMM2
+  n_snmf_k:    6           # max K to test in sNMF
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Overview
+
+End-to-end GWAS pipeline for *Quercus robur* masting, `r params$n_label`.
+Input files are in `r params$run_dir`/. Heavy steps write checkpoint `.rds` files
+to `output/r params$run_dir`/ so re-renders skip recomputation automatically.
+
+> **n36 note:** If running n36, set `params$excl_sample = "Ox002104"` and
+> ensure `n36/` contains files from `run2.sh` + `gwas_impute.R` on the server.
+
+---
+
+## Libraries {.tabset}
+
+```{r libraries}
+suppressPackageStartupMessages({
+  library(LEA)
+  library(data.table)
+  library(parallel)
+  library(tidyverse)
+  library(ggrepel)
+  library(ggpubr)
+  library(patchwork)
+  library(viridis)
+  library(ggsci)
+  library(qvalue)
+  library(vegan)
+})
+
+# GenomicRanges / rtracklayer may be blocked by Application Control (Rsamtools.dll).
+# Load conditionally — annotation section is skipped if unavailable.
+ANNOTATION_AVAILABLE <- tryCatch({
+  suppressPackageStartupMessages({
+    library(GenomicRanges)
+    library(rtracklayer)
+  })
+  TRUE
+}, error = function(e) {
+  message("NOTE: rtracklayer/GenomicRanges unavailable (", conditionMessage(e), ")")
+  message("      CDS annotation section will be skipped.")
+  FALSE
+})
+
+# clusterProfiler and its dependencies may be blocked by system security policy
+# (ggiraph.dll). Load conditionally — enrichment section is skipped if unavailable.
+source("proj_theme.R")
+
+ENRICHMENT_AVAILABLE <- tryCatch({
+  suppressPackageStartupMessages({
+    library(clusterProfiler)
+    library(org.At.tair.db)
+    library(enrichplot)
+  })
+  TRUE
+}, error = function(e) {
+  message("NOTE: clusterProfiler unavailable (", conditionMessage(e), ")")
+  message("      Enrichment section will be skipped.")
+  FALSE
+})
+```
+
+## Paths & configuration
+
+```{r config}
+RUN_DIR <- params$run_dir
+OUT_DIR <- file.path("output", if (RUN_DIR == ".") "n37" else RUN_DIR)
+REF_DIR <- "ref"
+dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+# Local file layout: all files are flat in RUN_DIR with prefix WWO_37WGS_pruned.
+# GWAS was run on the LD-pruned + imputed set; results are in the server RDS.
+PREFIX <- "WWO_37WGS_pruned"
+
+# Input files
+f_pruned     <- file.path(RUN_DIR, paste0(PREFIX, ".lfmm"))
+f_imputed    <- file.path(RUN_DIR, paste0(PREFIX, "_imputed.lfmm"))
+f_pos        <- file.path(RUN_DIR, paste0(PREFIX, "_imputed.012.pos"))
+f_snmf_lfmm <- file.path(RUN_DIR, paste0(PREFIX, "_snmf_sub.lfmm"))
+f_snmf_proj  <- file.path(RUN_DIR, paste0(PREFIX, "_snmf_sub.snmfProject"))
+f_pca_vec    <- file.path(RUN_DIR, "pca.eigenvec")
+f_pca_val    <- file.path(RUN_DIR, "pca.eigenval")
+f_rel        <- file.path(RUN_DIR, "relatedness.relatedness2")
+f_gff        <- file.path(REF_DIR, "Qrob_cds.gff")
+f_annot      <- file.path(REF_DIR, "Qrob_araport_pep_annotation.tsv")
+f_data       <- "WWO_37WGS_data.csv"
+
+# Server GWAS result (list with $p, $q, $z, $gif, $loci)
+f_gwas_server <- file.path(RUN_DIR, paste0("lfmm2_res_", PREFIX, "_imputed.rds"))
+
+# Checkpoint files (written once, reloaded on re-render)
+ck_snmf  <- file.path(OUT_DIR, "snmf_Q.rds")
+ck_ce    <- file.path(OUT_DIR, "snmf_crossentropy.rds")
+ck_gwas  <- file.path(OUT_DIR, "lfmm2_res.rds")
+ck_annot <- file.path(OUT_DIR, "loci_annotated.rds")
+
+cat("Run dir :", RUN_DIR, "\n")
+cat("Prefix  :", PREFIX,  "\n")
+cat("Output  :", OUT_DIR, "\n")
+
+# Verify required files
+missing <- Filter(Negate(file.exists), c(
+  f_pruned, f_imputed, f_pos, f_pca_vec, f_pca_val, f_rel,
+  f_gff, f_annot, f_data, f_gwas_server
+))
+if (length(missing) > 0) {
+  cat("MISSING FILES:\n"); cat(" ", missing, sep="\n  ")
+  stop("Missing input files — see above.")
+}
+cat("All required input files present.\n")
+```
+
+---
+
+# 0 · Relatedness QC
+
+Pairwise KING-robust kinship coefficients from `vcftools --relatedness2`,
+computed on the **full filtered SNP set** (not LD-pruned — LD-pruned data
+produced artefactual inflation in pilot runs).
+
+Thresholds (Manichaikul et al. 2010):
+
+| φ | Relationship |
+|---|---|
+| > 0.354 | Duplicate / MZ twin |
+| 0.177–0.354 | 1st degree |
+| 0.0884–0.177 | 2nd degree |
+| 0.0442–0.0884 | 3rd degree |
+| < 0.0442 | Unrelated |
+
+```{r relatedness}
+rel <- read.table(f_rel, header = TRUE)
+rel <- rel[rel$INDV1 != rel$INDV2, ]   # remove self-comparisons
+
+rel$degree <- cut(
+  rel$RELATEDNESS_PHI,
+  breaks = c(-Inf, 0.0442, 0.0884, 0.177, 0.354, Inf),
+  labels = c("Unrelated", "3rd degree", "2nd degree", "1st degree", "Duplicate")
+)
+
+rel_counts <- as.data.frame(table(Relatedness = rel$degree))
+knitr::kable(rel_counts, caption = "Pairwise relatedness classification")
+write.table(rel_counts, file.path(OUT_DIR, "relatedness_counts.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+```{r relatedness_close}
+rel_close <- rel[rel$RELATEDNESS_PHI > 0.0884, ]
+if (nrow(rel_close) > 0) {
+  knitr::kable(
+    rel_close[order(-rel_close$RELATEDNESS_PHI),
+              c("INDV1", "INDV2", "RELATEDNESS_PHI", "degree")],
+    digits = 4, caption = "Pairs at 2nd degree or closer"
+  )
+}
+```
+
+```{r relatedness_per_indiv}
+rel_max <- aggregate(RELATEDNESS_PHI ~ INDV1, data = rel, FUN = max)
+colnames(rel_max) <- c("Individual", "Max_phi")
+rel_max$Closest_degree <- cut(
+  rel_max$Max_phi,
+  breaks = c(-Inf, 0.0442, 0.0884, 0.177, 0.354, Inf),
+  labels = c("Unrelated", "3rd degree", "2nd degree", "1st degree", "Duplicate")
+)
+rel_max <- rel_max[order(-rel_max$Max_phi), ]
+
+# Flag Ox002104 if present — elevated phi across all pairs indicates contamination
+ox <- rel_max[rel_max$Individual == "Ox002104", ]
+if (nrow(ox) > 0)
+  cat("⚠ Ox002104 present: max phi =", round(ox$Max_phi, 3),
+      "— consistent with sample contamination. Excluded in n36 run.\n")
+
+knitr::kable(head(rel_max, 20), digits = 4,
+             caption = "Top 20 individuals by max pairwise phi")
+write.table(rel_max, file.path(OUT_DIR, "relatedness_per_individual.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+```{r relatedness_plot, fig.cap="Distribution of pairwise KING kinship coefficients."}
+ggplot(rel, aes(x = RELATEDNESS_PHI)) +
+  geom_histogram(bins = 80, fill = "steelblue", colour = "white") +
+  geom_vline(xintercept = c(0.0442, 0.0884, 0.177, 0.354),
+             linetype = "dashed", colour = "firebrick") +
+  annotate("text", x = c(0.0442, 0.0884, 0.177, 0.354) + 0.015,
+           y = Inf, vjust = 1.5, size = 3, colour = "firebrick",
+           label = c("3°", "2°", "1°", "Dup")) +
+  labs(x = "KING kinship coefficient (φ)", y = "Pairs")
+
+ggsave(file.path(OUT_DIR, "relatedness_hist.png"), last_plot(),
+       width = 90, height = 70, units = "mm", dpi = 300)
+```
+
+---
+
+# 1 · PCA
+
+LD-pruned SNPs (~995 k) were used for PCA via PLINK. The broken-stick model
+identifies PCs explaining more variance than expected by chance.
+
+```{r pca}
+pca      <- read.table(f_pca_vec, header = FALSE, sep = " ")
+eigenval <- scan(f_pca_val, quiet = TRUE)
+
+pca <- pca[, -1]   # drop FID column
+names(pca) <- c("sample", paste0("PC", seq_len(ncol(pca) - 1)))
+
+n_pc <- length(eigenval)
+pve  <- eigenval / sum(eigenval) * 100
+bs   <- vegan::bstick(n_pc) * 100
+
+n_sig <- sum(pve > bs)
+cat("PCs exceeding broken-stick null:", n_sig, "\n")
+
+pve_df <- data.frame(PC = seq_len(n_pc), pve = pve, bs = bs)
+```
+
+```{r pca_plots, fig.height=9, fig.cap="PCA of LD-pruned SNPs. Broken-stick null shown on scree plot."}
+p12 <- ggplot(pca, aes(PC1, PC2, label = sample, colour = sample)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 2.5, max.overlaps = 5) +
+  stat_ellipse(colour = "grey50") +
+  scale_colour_viridis_d() +
+  xlab(paste0("PC1 (", signif(pve[1], 3), "%)")) +
+  ylab(paste0("PC2 (", signif(pve[2], 3), "%)")) +
+  theme(legend.position = "none")
+
+p23 <- ggplot(pca, aes(PC2, PC3, label = sample, colour = sample)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 2.5, max.overlaps = 5) +
+  stat_ellipse(colour = "grey50") +
+  scale_colour_viridis_d() +
+  xlab(paste0("PC2 (", signif(pve[2], 3), "%)")) +
+  ylab(paste0("PC3 (", signif(pve[3], 3), "%)")) +
+  theme(legend.position = "none")
+
+p_scree <- ggplot(pve_df, aes(PC, pve)) +
+  geom_col(fill = "steelblue") +
+  geom_point(aes(y = bs)) + geom_line(aes(y = bs)) +
+  labs(x = "PC", y = "Variance explained\n(%)",
+       )
+
+(p12 | p23) / p_scree + plot_layout(heights = c(2, 1))
+
+ggsave(file.path(OUT_DIR, "pca_pc12.png"),    p12,     width=50, height=50, units="mm", dpi=300)
+ggsave(file.path(OUT_DIR, "pca_pc23.png"),    p23,     width=50, height=50, units="mm", dpi=300)
+ggsave(file.path(OUT_DIR, "pca_scree.png"),   p_scree, width=50,  height=50,  units="mm", dpi=300)
+```
+
+---
+
+# 2 · Population structure — sNMF
+
+sNMF (sparse NMF) estimates ancestry proportions and selects *K* via
+cross-entropy. Run on 100 k randomly subsampled LD-pruned SNPs.
+
+**Checkpoint:** Q matrix and cross-entropy saved to `output/r params$run_dir`/
+on first run. On re-render these are loaded directly, bypassing sNMF entirely.
+
+If the `.snmf/` directory is present (downloaded from server), Q and cross-entropy
+are read directly from the binary `.Q` and `.snmfClass` files — `load.snmfProject()`
+is deliberately avoided because it stores absolute server paths and fails locally.
+
+```{r snmf, cache=TRUE}
+# LEA writes .Q files as space-separated text, not binary
+read_Q_bin <- function(path, n_samples, K)
+  as.matrix(read.table(path, header = FALSE))
+
+# Helper: extract cross-entropy from a .snmfClass file (saved by LEA with dput)
+read_ce_bin <- function(path) {
+  tryCatch(slot(dget(path), "crossEntropy"), error = function(e) NA_real_)
+}
+
+if (file.exists(ck_snmf) && file.exists(ck_ce)) {
+  cat("Loading sNMF checkpoint...\n")
+  Q_mat <- readRDS(ck_snmf)
+  ce_df <- readRDS(ck_ce)
+
+} else {
+  snmf_dir    <- file.path(RUN_DIR, paste0(PREFIX, "_snmf_sub.snmf"))
+  snmf_prefix <- paste0(PREFIX, "_snmf_sub")
+  n_ind       <- nrow(pca)   # number of samples, already known from PCA
+
+  if (dir.exists(snmf_dir)) {
+    # ── Read directly from downloaded .snmf/ directory ──────────────────────
+    cat("Reading Q and cross-entropy from binary snmf files...\n")
+    rows <- list()
+    Q_by_run <- list()
+    for (k in 1:params$n_snmf_k) {
+      for (r in 1:3) {
+        q_file  <- file.path(snmf_dir, paste0("K",k), paste0("run",r),
+                             paste0(snmf_prefix, "_r", r, ".", k, ".Q"))
+        sc_file <- file.path(snmf_dir, paste0("K",k), paste0("run",r),
+                             paste0(snmf_prefix, "_r", r, ".", k, ".snmfClass"))
+        if (!file.exists(q_file) || !file.exists(sc_file)) next
+        ce_val <- read_ce_bin(sc_file)
+        rows[[length(rows)+1]] <- data.frame(K=k, rep=r, ce=ce_val)
+        if (k == params$k_gwas)
+          Q_by_run[[r]] <- read_Q_bin(q_file, n_ind, k)
+      }
+    }
+    ce_df    <- bind_rows(rows)
+    best_run <- ce_df[ce_df$K == params$k_gwas, ] |>
+                  slice_min(ce, n=1) |> pull(rep)
+    Q_mat    <- Q_by_run[[best_run]]
+
+  } else {
+    # ── Run sNMF fresh ───────────────────────────────────────────────────────
+    cat("Running sNMF K=1:", params$n_snmf_k, "(3 reps)...\n")
+    pruned  <- as.matrix(fread(f_pruned, header = FALSE))
+    set.seed(225)
+    sub_idx <- sample(ncol(pruned), min(100000L, ncol(pruned)))
+    fwrite(as.data.table(pruned[, sub_idx]), file = f_snmf_lfmm,
+           sep = "\t", col.names = FALSE)
+    rm(pruned); gc()
+    proj <- snmf(f_snmf_lfmm, K = 1:params$n_snmf_k,
+                 entropy = TRUE, repetitions = 3,
+                 CPU = max(1L, detectCores() - 1L), project = "new")
+
+    ce_df <- expand.grid(K = 1:params$n_snmf_k, rep = 1:3) |>
+      rowwise() |>
+      mutate(ce = tryCatch(cross.entropy(proj, K=K, run=rep),
+                           error = function(e) NA_real_)) |>
+      ungroup()
+    best_run <- ce_df[ce_df$K == params$k_gwas, ] |>
+                  slice_min(ce, n=1) |> pull(rep)
+    Q_mat <- Q(proj, K = params$k_gwas, run = best_run)
+  }
+
+  saveRDS(Q_mat, ck_snmf)
+  saveRDS(ce_df, ck_ce)
+  cat("sNMF checkpoint saved.\n")
+}
+
+cat("Q matrix:", nrow(Q_mat), "samples x", ncol(Q_mat), "components\n")
+mean_ce <- tapply(ce_df$ce, ce_df$K, mean, na.rm = TRUE)
+k_best  <- as.integer(names(which.min(mean_ce)))
+cat("Optimal K (min mean cross-entropy):", k_best, "\n")
+cat("Using K =", params$k_gwas, "for LFMM2 (set via params$k_gwas)\n")
+```
+
+```{r snmf_plot, fig.cap="sNMF cross-entropy by K. Minimum indicates optimal number of ancestral populations."}
+ggplot(ce_df, aes(factor(K), ce)) +
+  geom_jitter(width = 0.1, size = 2, alpha = 0.6, colour = "steelblue") +
+  stat_summary(fun = mean, geom = "point", shape = 18,
+               size = 4, colour = "firebrick") +
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0.2, colour = "firebrick") +
+  labs(x = "K", y = "Cross-entropy")
+
+ggsave(file.path(OUT_DIR, "snmf_crossentropy.png"), last_plot(),
+       width = 50, height = 50, units = "mm", dpi = 300)
+```
+
+---
+
+# 3 · Genotype imputation
+
+Missing genotypes (coded 9 in `.lfmm` format) are imputed independently
+per site using the K=`r params$k_gwas` Q matrix from sNMF. Imputation is
+site-independent given Q, so parallelised across SNP chunks.
+
+**Checkpoint:** skips entirely if `r f_imputed` already exists.
+
+```{r impute}
+if (file.exists(f_imputed)) {
+  cat("Imputed file exists — skipping imputation.\n")
+  cat("File:", f_imputed, "\n")
+  cat("Size:", round(file.size(f_imputed) / 1e6, 1), "MB\n")
+} else {
+  cat("Imputed file not found — running parallel imputation...\n")
+
+  Y         <- as.matrix(fread(f_full, header = FALSE))
+  n_samples <- nrow(Y)
+  n_snps    <- ncol(Y)
+  cat("Full matrix:", n_samples, "x", n_snps, "\n")
+  cat("Missing (9):", sum(Y == 9L),
+      sprintf("(%.3f%%)\n", 100 * mean(Y == 9L)))
+
+  # Impute one SNP chunk; writes to a temp file; returns path
+  impute_chunk_to_file <- function(i, col_start, col_end, Y, tmp_dir) {
+    chunk <- Y[, col_start:col_end, drop = FALSE]
+    K     <- ncol(Q_mat)
+    for (j in seq_len(ncol(chunk))) {
+      geno    <- chunk[, j]
+      missing <- geno == 9L
+      if (!any(missing)) next
+      obs   <- !missing
+      Q_obs <- Q_mat[obs, , drop = FALSE]
+      y_obs <- geno[obs]
+      QQ    <- crossprod(Q_obs)
+      Qy    <- crossprod(Q_obs, y_obs)
+      F_j   <- tryCatch(
+        solve(QQ + diag(1e-6, K), Qy),
+        error = function(e) matrix(mean(y_obs) / 2, K, 1)
+      )
+      F_j <- pmax(0, pmin(1, F_j))
+      p_miss <- Q_mat[missing, , drop = FALSE] %*% F_j
+      p_miss <- pmax(0, pmin(1, p_miss))
+      chunk[missing, j] <- rbinom(sum(missing), 2L, as.numeric(p_miss))
+    }
+    tmp_path <- file.path(tmp_dir, sprintf("chunk_%05d.tmp", i))
+    fwrite(as.data.table(chunk), file = tmp_path, sep = " ", col.names = FALSE)
+    tmp_path
+  }
+
+  chunk_size   <- 34000L
+  tmp_dir      <- file.path(RUN_DIR, "impute_tmp")
+  dir.create(tmp_dir, showWarnings = FALSE)
+  chunk_starts <- seq(1L, n_snps, by = chunk_size)
+  chunk_ends   <- pmin(chunk_starts + chunk_size - 1L, n_snps)
+  n_chunks     <- length(chunk_starts)
+  n_cores      <- max(1L, detectCores() - 1L)
+  cat("Chunks:", n_chunks, "| Cores:", n_cores, "\n")
+
+  if (.Platform$OS.type == "unix") {
+    tmp_files <- unlist(mclapply(seq_len(n_chunks), function(i)
+      impute_chunk_to_file(i, chunk_starts[i], chunk_ends[i], Y, tmp_dir),
+      mc.cores = n_cores))
+  } else {
+    cl <- makeCluster(n_cores)
+    clusterExport(cl, c("Q_mat", "impute_chunk_to_file", "tmp_dir",
+                        "chunk_starts", "chunk_ends", "Y"), envir = environment())
+    clusterEvalQ(cl, { library(data.table); set.seed(225) })
+    tmp_files <- unlist(parLapply(cl, seq_len(n_chunks), function(i)
+      impute_chunk_to_file(i, chunk_starts[i], chunk_ends[i], Y, tmp_dir)))
+    stopCluster(cl)
+  }
+
+  # Stitch temp files horizontally, batch-reading to stay under R's 128-connection limit
+  batch_size <- min(n_chunks, max(1L, 128L - nrow(showConnections()) - 5L))
+  cat("Stitching with batch size:", batch_size, "\n")
+  all_lines <- vector("list", n_chunks)
+  for (b in seq(1L, n_chunks, by = batch_size)) {
+    idx     <- b:min(b + batch_size - 1L, n_chunks)
+    in_cons <- lapply(tmp_files[idx], file, open = "r")
+    for (k in seq_along(idx))
+      all_lines[[idx[k]]] <- readLines(in_cons[[k]])
+    lapply(in_cons, close)
+  }
+  out_con <- file(f_imputed, open = "w")
+  for (row_i in seq_len(n_samples))
+    writeLines(paste(vapply(all_lines, `[`, character(1L), row_i), collapse = " "),
+               out_con)
+  close(out_con)
+  rm(all_lines, Y); gc()
+  unlink(tmp_files); unlink(tmp_dir, recursive = TRUE)
+  cat("Imputation complete:", f_imputed, "\n")
+}
+```
+
+---
+
+# 4 · Phenotype preprocessing
+
+```{r phenotypes}
+raw <- read.csv(f_data, header = TRUE)
+cat("Data:", nrow(raw), "rows x", ncol(raw), "cols\n")
+
+if (nzchar(params$excl_sample)) {
+  raw <- raw[raw$GENOME != params$excl_sample, ]
+  cat("Excluded:", params$excl_sample, "| Remaining:", nrow(raw), "\n")
+}
+
+# Soil texture PCA — sand/silt/clay are compositional (sum to 100%)
+soil_pca     <- prcomp(raw[, c("SAND", "SILT", "CLAY")], center = TRUE, scale. = TRUE)
+soil_pve     <- soil_pca$sdev^2 / sum(soil_pca$sdev^2) * 100
+raw$SOIL_PC1 <- soil_pca$x[, 1]
+cat("Soil PC1 variance:", signif(soil_pve[1], 3), "%\n")
+
+GWAS_VARS <- c("VIZ_COUNT", "MATURE_ACORNS", "IMMAT_ACORNS", "ENLARGED_CUPS",
+               "FLOWERS", "CANOPY_CLOSURE", "SPRING_PHENO", "SOIL_PC1", "MIDNOV_LAI")
+
+data <- raw[, c("GENOME", "TREE_ID", GWAS_VARS)]
+
+# Log1p-transform right-skewed count variables
+data[c("MATURE_ACORNS", "IMMAT_ACORNS")] <- log1p(data[c("MATURE_ACORNS", "IMMAT_ACORNS")])
+```
+
+```{r phenotype_plots, fig.height=10, fig.cap="Q-Q plots of GWAS variables after log-transformation of acorn counts."}
+plots <- lapply(GWAS_VARS, function(v)
+  ggqqplot(data[[v]]) +
+    theme(axis.title = element_blank(), plot.title = element_text(size = 9)))
+ggarrange(plotlist = plots, ncol = 3, nrow = 3)
+ggsave(file.path(OUT_DIR, "phenotype_qqplots.png"), last_plot(),
+       width = 170, height = 170, units = "mm", dpi = 300)
+```
+
+```{r phenotype_summary}
+knitr::kable(
+  sapply(data[GWAS_VARS], function(x)
+    round(c(mean=mean(x), sd=sd(x), min=min(x), max=max(x)), 3)) |>
+    t() |> as.data.frame(),
+  caption = "Descriptive statistics after transformation"
+)
+```
+
+```{r soil_plot, fig.cap="Soil texture PCA. PC1 enters GWAS as SOIL_PC1."}
+raw$SOIL_CLASS <- gsub("_", " ", raw$SOIL_CLASS)
+ggplot(raw, aes(soil_pca$x[,1], soil_pca$x[,2], colour = SOIL_CLASS)) +
+  geom_point(size = 3) + scale_colour_npg() +
+  xlab(paste0("PC1 (", signif(soil_pve[1],3), "%)")) +
+  ylab(paste0("PC2 (", signif(soil_pve[2],3), "%)")) +
+  labs(colour = "Soil class")
+ggsave(file.path(OUT_DIR, "soil_pca.png"), last_plot(),
+       width = 100, height = 90, units = "mm", dpi = 300)
+```
+
+---
+
+# 5 · GWAS — LFMM2
+
+LFMM2 (Caye et al. 2019) fits a ridge-penalised LMM with K=`r params$k_gwas`
+latent factor(s) absorbing genome-wide covariance (relatedness, structure).
+Genomic control recalibrates p-values post-hoc.
+
+**Checkpoints (in order of preference):**
+1. `r RUN_DIR`/lfmm2_res.rds — server-produced via `gwas_lfmm.R` (parallel, GIF-corrected)
+2. `r ck_gwas` — local checkpoint from a previous render
+3. Run LFMM2 locally (slow — use server if possible)
+
+```{r gwas, cache=TRUE}
+if (file.exists(f_gwas_server)) {
+  # ── Server format: list(p, q, z, gif, loci) ────────────────────────────────
+  cat("Loading server GWAS results from", f_gwas_server, "\n")
+  srv      <- readRDS(f_gwas_server)
+  p_mat    <- as.matrix(srv$p)
+  q_mat    <- as.matrix(srv$q)
+  z_mat    <- as.matrix(srv$z)
+  gif_df   <- srv$gif
+  loci     <- as.data.frame(srv$loci)
+  n_samples <- nrow(data)
+  colnames(p_mat) <- colnames(q_mat) <- colnames(z_mat) <- GWAS_VARS
+  rm(srv); gc()
+
+} else if (file.exists(ck_gwas)) {
+  # ── Local LEA checkpoint ────────────────────────────────────────────────────
+  cat("Loading local GWAS checkpoint from", ck_gwas, "\n")
+  gwas_ck   <- readRDS(ck_gwas)
+  raw_res   <- gwas_ck$res
+  loci      <- as.data.frame(gwas_ck$loci)
+  n_samples <- gwas_ck$n_samples
+  rm(gwas_ck)
+  p_mat <- t(raw_res$pvalues)
+  z_mat <- t(raw_res$zscores)
+  colnames(p_mat) <- colnames(z_mat) <- GWAS_VARS
+  gif_df <- data.frame(Trait = GWAS_VARS,
+                       GIF   = round(as.numeric(raw_res$gif), 3))
+  q_mat <- apply(p_mat, 2, function(p) qvalue(p)$qvalues)
+  colnames(q_mat) <- GWAS_VARS
+  rm(raw_res); gc()
+
+} else {
+  # ── Run locally (single-threaded; use server for large datasets) ────────────
+  cat("No checkpoint found — running LFMM2 locally...\n")
+  Y    <- as.matrix(fread(f_imputed, header = FALSE))
+  loci <- as.data.frame(fread(f_pos, header = FALSE,
+                               col.names = c("CHROM", "POS")))
+  n_samples <- nrow(Y)
+  cat("Matrix:", nrow(Y), "samples x", ncol(Y), "SNPs\n")
+  X         <- as.matrix(data[, GWAS_VARS])
+  lfmm2_fit <- lfmm2(input = Y, env = X, K = params$k_gwas)
+  raw_res   <- lfmm2.test(lfmm2_fit, input = Y, env = X,
+                           genomic.control = TRUE)
+  rm(Y, lfmm2_fit); gc()
+  p_mat <- t(raw_res$pvalues)
+  z_mat <- t(raw_res$zscores)
+  colnames(p_mat) <- colnames(z_mat) <- GWAS_VARS
+  gif_df <- data.frame(Trait = GWAS_VARS,
+                       GIF   = round(as.numeric(raw_res$gif), 3))
+  q_mat <- apply(p_mat, 2, function(p) qvalue(p)$qvalues)
+  colnames(q_mat) <- GWAS_VARS
+  rm(raw_res); gc()
+  saveRDS(list(p=p_mat, q=q_mat, z=z_mat, gif=gif_df, loci=loci), ck_gwas)
+  cat("Checkpoint saved to", ck_gwas, "\n")
+}
+
+cat("GWAS results loaded:", nrow(loci), "SNPs x", ncol(p_mat), "traits\n")
+```
+
+### Genomic inflation factors
+
+GIF ≈ 1 is ideal. Values > 2 indicate under-correction; < 0.5 over-correction.
+
+```{r gwas_gif}
+knitr::kable(gif_df, caption = "Genomic inflation factor (GIF) per trait")
+write.table(gif_df, file.path(OUT_DIR, "gwas_gif.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+```{r gwas_pq}
+lfmm_p <- as.data.frame(cbind(loci, p_mat))
+lfmm_q <- as.data.frame(cbind(loci, q_mat))
+lfmm_z <- as.data.frame(cbind(loci, z_mat))
+
+write.table(lfmm_p, file.path(OUT_DIR, "lfmm.p.tsv"), sep="\t", quote=FALSE, row.names=FALSE)
+write.table(lfmm_q, file.path(OUT_DIR, "lfmm.q.tsv"), sep="\t", quote=FALSE, row.names=FALSE)
+write.table(lfmm_z, file.path(OUT_DIR, "lfmm.z.tsv"), sep="\t", quote=FALSE, row.names=FALSE)
+```
+
+```{r gwas_sig_summary}
+per_trait <- colSums(q_mat < 0.05)
+sig_any   <- rowSums(q_mat < 0.05) >= 1
+cat("Total significant SNPs (Q<0.05, ≥1 trait):", sum(sig_any), "\n")
+knitr::kable(data.frame(Trait=names(per_trait), Sig_SNPs=per_trait),
+             caption = "Significant SNPs per trait (Q < 0.05)")
+```
+
+---
+
+# 6 · Annotation
+
+Significant SNPs (Q < 0.05) are overlapped with *Q. robur* CDS features
+(Qrob PM1N annotation). CDS → Arabidopsis TAIR IDs via blastp (E < 1×10⁻¹⁰).
+
+```{r annotation, cache=TRUE, cache.extra=file.mtime(f_gff)}
+if (file.exists(ck_annot)) {
+  cat("Loading annotation checkpoint...\n")
+  loci_annotated <- readRDS(ck_annot)
+} else if (!ANNOTATION_AVAILABLE) {
+  cat("NOTE: rtracklayer unavailable — skipping CDS annotation.\n")
+  loci_annotated <- as.data.table(loci)
+  loci_annotated$gene   <- NA_character_
+  loci_annotated$strand <- NA_character_
+  loci_annotated$tair   <- NA_character_
+} else {
+  cat("Building SNP annotation...\n")
+  # Load GFF — keep CDS features only
+  cds_gr <- import(f_gff)
+  cds_gr <- cds_gr[cds_gr$type == "CDS"]
+  mcols(cds_gr)$Parent <- as.character(
+    vapply(mcols(cds_gr)$Parent, `[`, character(1), 1))
+
+  # Araport blastp hits filtered at E < 1e-10; keep best hit per Q. robur transcript
+  ann <- read.table(f_annot, sep="\t", header=FALSE)
+  ann <- ann[ann$V11 < 1e-10, ]
+  ann <- ann[order(ann$V11), ]                        # sort by e-value
+  ann <- ann[!duplicated(ann$V1), c("V1","V2")]       # one Arabidopsis hit per Qrob protein
+  colnames(ann) <- c("gene","tair")
+  ann$gene <- gsub("^Qrob_P", "Qrob_T", ann$gene)   # protein → transcript ID
+
+  # Build GRanges for all loci
+  loci_gr <- GRanges(seqnames=loci$CHROM,
+                     ranges=IRanges(start=loci$POS, end=loci$POS))
+  hits    <- findOverlaps(loci_gr, cds_gr)
+  hit_dt  <- data.table(
+    idx    = queryHits(hits),
+    gene   = mcols(cds_gr)$Parent[subjectHits(hits)],
+    strand = as.character(strand(cds_gr)[subjectHits(hits)])
+  )[, .SD[1], by=idx]   # one CDS per SNP
+
+  loci_annotated <- as.data.table(loci)[, idx := .I]
+  loci_annotated <- merge(loci_annotated, hit_dt, by="idx", all.x=TRUE)[, idx:=NULL]
+  loci_annotated <- merge(loci_annotated, ann, by="gene", all.x=TRUE)
+
+  # Look up Arabidopsis gene symbol and description via org.At.tair.db
+  tair_loci <- unique(na.omit(gsub("\\.\\d+$", "", loci_annotated$tair)))
+  if (ENRICHMENT_AVAILABLE && length(tair_loci) > 0) {
+    sym_df <- tryCatch(
+      AnnotationDbi::select(org.At.tair.db, keys=tair_loci, keytype="TAIR",
+                            columns=c("SYMBOL","GENENAME")) |>
+        dplyr::rename(tair_locus=TAIR, symbol=SYMBOL, description=GENENAME) |>
+        dplyr::distinct(tair_locus, .keep_all=TRUE),
+      error=function(e) { message("Symbol lookup failed: ", e$message); NULL }
+    )
+    if (!is.null(sym_df)) {
+      loci_annotated[, tair_locus := gsub("\\.\\d+$", "", tair)]
+      loci_annotated <- merge(loci_annotated, as.data.table(sym_df),
+                              by="tair_locus", all.x=TRUE)[, tair_locus:=NULL]
+    }
+  } else {
+    loci_annotated[, c("symbol","description") := NA_character_]
+  }
+
+  setcolorder(loci_annotated, c("CHROM","POS","gene","strand","tair","symbol","description"))
+
+  saveRDS(loci_annotated, ck_annot)
+  cat("Annotation checkpoint saved.\n")
+}
+cat("SNPs in CDS:", sum(!is.na(loci_annotated$gene)), "of", nrow(loci_annotated), "\n")
+# Ensure symbol/description columns exist even when loaded from old checkpoint
+if (!"symbol" %in% names(loci_annotated))
+  loci_annotated[, c("symbol","description") := NA_character_]
+write.table(loci_annotated, file.path(OUT_DIR, "loci_annotated.tsv"),
+            sep="\t", quote=FALSE, row.names=FALSE)
+```
+
+```{r sig_annotated}
+p_long     <- pivot_longer(lfmm_p, all_of(GWAS_VARS), names_to="trait", values_to="p")
+q_long_all <- pivot_longer(lfmm_q, all_of(GWAS_VARS), names_to="trait", values_to="q")
+z_long     <- pivot_longer(lfmm_z, all_of(GWAS_VARS), names_to="trait", values_to="z")
+
+sig_ann <- p_long |>
+  left_join(q_long_all, by=c("CHROM","POS","trait")) |>
+  left_join(z_long,     by=c("CHROM","POS","trait")) |>
+  filter(q < 0.05) |>
+  left_join(as.data.frame(loci_annotated), by=c("CHROM","POS")) |>
+  arrange(trait, CHROM, POS)
+
+# Primary output: one row per significant SNP × trait, with Arabidopsis annotation
+write.csv(sig_ann |>
+  dplyr::select(CHROM, POS, trait, z, p, q, gene, strand, tair, symbol, description),
+  file.path(OUT_DIR, "sig_snps_annotated.csv"), row.names=FALSE, na="NA")
+
+snp_summ <- sig_ann |>
+  group_by(trait) |>
+  summarise(total=n(), in_CDS=sum(!is.na(gene)),
+            unique_genes=n_distinct(gene, na.rm=TRUE),
+            with_symbol=sum(!is.na(symbol)), .groups="drop")
+knitr::kable(snp_summ, caption="Significant SNP annotation summary per trait")
+write.csv(snp_summ, file.path(OUT_DIR, "sig_snp_summary.csv"), row.names=FALSE)
+```
+
+---
+
+# 7 · Visualisation {.tabset}
+
+## P-value histograms
+
+```{r viz_p_hist, fig.height=8, fig.cap="P-value histograms. Flat distribution = well-calibrated after genomic control."}
+pivot_longer(lfmm_p, all_of(GWAS_VARS), names_to="trait", values_to="p") |>
+  ggplot(aes(p)) +
+  geom_histogram(bins=50, fill="steelblue", colour="white") +
+  facet_wrap(~trait, ncol=3, scales="free_y") +
+  scale_x_continuous(limits=c(0,1), expand=c(0,0)) +
+  labs(x="P-value", y="Count")
+ggsave(file.path(OUT_DIR, "pval_histograms.png"), last_plot(),
+       width=170, height=130, units="mm", dpi=300)
+```
+
+## Q-value histograms
+
+```{r viz_q_hist, fig.height=8}
+pivot_longer(lfmm_q, all_of(GWAS_VARS), names_to="trait", values_to="q") |>
+  ggplot(aes(q)) +
+  geom_histogram(bins=50, fill="darkorange", colour="white") +
+  facet_wrap(~trait, ncol=3, scales="free_y") +
+  scale_x_continuous(limits=c(0,1), expand=c(0,0)) +
+  labs(x="Q-value", y="Count")
+ggsave(file.path(OUT_DIR, "qval_histograms.png"), last_plot(),
+       width=170, height=130, units="mm", dpi=300)
+```
+
+## Manhattan plots
+
+```{r manhattan, results='asis', fig.height=4}
+chr_num <- function(x) suppressWarnings(as.integer(sub("Qrob_Chr0?", "", x)))
+set.seed(42)
+MAX_NONSIG <- 100000L
+
+q_long_full <- pivot_longer(lfmm_q, all_of(GWAS_VARS), names_to="trait", values_to="q") |>
+  left_join(pivot_longer(lfmm_p, all_of(GWAS_VARS), names_to="trait", values_to="p"),
+            by=c("CHROM","POS","trait")) |>
+  left_join(pivot_longer(lfmm_z, all_of(GWAS_VARS), names_to="trait", values_to="z"),
+            by=c("CHROM","POS","trait")) |>
+  mutate(chr = chr_num(CHROM), sig = q < 0.05) |>
+  filter(!is.na(chr))
+
+# Join gene symbols (annotation runs before this section)
+sym_ann <- as.data.frame(loci_annotated) |>
+  dplyr::select(CHROM, POS, symbol) |>
+  dplyr::distinct(CHROM, POS, .keep_all=TRUE)
+q_long_full <- left_join(q_long_full, sym_ann, by=c("CHROM","POS"))
+
+for (tr in GWAS_VARS) {
+  tmp_sig    <- filter(q_long_full, trait == tr, sig)
+  tmp_nonsig <- filter(q_long_full, trait == tr, !sig)
+  if (nrow(tmp_nonsig) > MAX_NONSIG)
+    tmp_nonsig <- tmp_nonsig[sample(nrow(tmp_nonsig), MAX_NONSIG), ]
+  tmp <- bind_rows(tmp_sig, tmp_nonsig) |> arrange(chr, POS)
+
+  p <- ggplot(tmp, aes(POS/1e6, -log10(q), colour = sig)) +
+    geom_point(data=filter(tmp, !sig), size=0.3, alpha=0.5) +
+    geom_point(data=filter(tmp, sig),  size=0.8, alpha=0.9) +
+    scale_colour_manual(values=c("FALSE"="grey70","TRUE"="steelblue"), guide="none") +
+    geom_hline(yintercept=-log10(0.05), linetype="dashed",
+               colour="firebrick", linewidth=0.5)
+
+  if (any(!is.na(tmp_sig$symbol)))
+    p <- p + geom_text_repel(
+      data=filter(tmp, sig, !is.na(symbol)),
+      aes(label=symbol),
+      size=3, max.overlaps=30, colour="black",
+      segment.size=0.4, segment.colour="black",
+      box.padding=0.4, point.padding=0,
+      min.segment.length=0, force_pull=0, nudge_y=1)
+
+  p <- p +
+    facet_grid(~factor(chr), scales="free_x", space="free", switch="x") +
+    labs(x="Position (Mbp)", y=expression(-log[10](italic(Q))), title=tr) +
+    scale_y_continuous(expand=expansion(mult=c(0,0.05))) +
+    theme(panel.spacing.x=unit(0.05,"lines"), axis.text.x=element_blank(),
+          strip.placement="outside", strip.text.x=element_text(size=7),
+          panel.border=element_rect(colour="grey80", fill=NA))
+
+  cat("###", tr, "\n\n"); print(p); cat("\n\n")
+  ggsave(file.path(OUT_DIR, paste0("manhattan_", tr, ".png")),
+         p, width=170, height=55, units="mm", dpi=300)
+}
+```
+
+---
+
+# 8 · Functional enrichment (GSEA)
+
+Gene set enrichment analysis via `gseGO` / `gseKEGG` (clusterProfiler).
+All annotated genes are ranked by a signed GWAS score:
+
+$$\text{score} = -\log_{10}(p) \times \text{sign}(z)$$
+
+where *p* and *z* are from the best SNP within each gene body.
+
+```{r enrichment, cache=TRUE}
+ck_enrich <- file.path(OUT_DIR, "enrichment_gsea.rds")
+ek_df  <- NULL
+ego_df <- NULL
+
+if (!ENRICHMENT_AVAILABLE) {
+  cat("Skipping enrichment — clusterProfiler not available on this system.\n")
+} else if (file.exists(ck_enrich)) {
+  cat("Loading GSEA enrichment checkpoint...\n")
+  enrich <- readRDS(ck_enrich)
+  ek_df  <- enrich$kegg
+  ego_df <- enrich$go
+} else {
+  la_ann <- loci_annotated[!is.na(tair), .(CHROM, POS,
+                                            tair_base = gsub("\\.\\d+$", "",
+                                                             as.character(tair)))]
+  gene_scores <- merge(
+    as.data.table(q_long_full)[, .(CHROM, POS, trait,
+                                   p_val = as.numeric(p),
+                                   z_val = as.numeric(z))],
+    la_ann, by=c("CHROM","POS")
+  ) |>
+    as.data.frame() |>
+    filter(!is.na(tair_base), !is.na(p_val), !is.na(z_val), p_val > 0) |>
+    mutate(score = -log10(p_val) * sign(z_val)) |>
+    group_by(trait, tair_base) |>
+    slice_max(order_by=abs(score), n=1, with_ties=FALSE) |>
+    ungroup()
+
+  ek_list <- list(); ego_list <- list()
+
+  for (tr in GWAS_VARS) {
+    d <- gene_scores |> filter(trait == tr)
+    if (nrow(d) < 10) next
+
+    ranked <- setNames(d$score, d$tair_base)
+    ranked <- ranked[!is.na(names(ranked))]
+    ranked <- sort(ranked, decreasing=TRUE)
+    ranked <- ranked[!duplicated(names(ranked))]
+
+    ego <- tryCatch(
+      gseGO(geneList     = ranked,
+            OrgDb        = org.At.tair.db,
+            keyType      = "TAIR",
+            ont          = "ALL",
+            minGSSize    = 5,
+            maxGSSize    = 500,
+            pvalueCutoff = 0.05,
+            eps          = 0,
+            verbose      = FALSE),
+      error = function(e) { message(tr, " gseGO: ", e$message); NULL })
+    if (!is.null(ego) && nrow(as.data.frame(ego)) > 0)
+      ego_list[[tr]] <- as.data.frame(ego) |>
+        filter(p.adjust < 0.05) |>
+        mutate(trait = tr)
+
+    kegg_map <- tryCatch(
+      bitr(names(ranked), fromType="TAIR", toType="ENTREZID",
+           OrgDb=org.At.tair.db),
+      error=function(e) NULL)
+    if (is.null(kegg_map) || nrow(kegg_map) == 0) next
+
+    ranked_kegg <- ranked[kegg_map$TAIR]
+    names(ranked_kegg) <- kegg_map$ENTREZID
+    ranked_kegg <- sort(ranked_kegg[!duplicated(names(ranked_kegg))],
+                        decreasing=TRUE)
+
+    ek <- tryCatch(
+      gseKEGG(geneList     = ranked_kegg,
+              organism     = "ath",
+              minGSSize    = 5,
+              maxGSSize    = 500,
+              pvalueCutoff = 0.05,
+              eps          = 0,
+              verbose      = FALSE,
+              use_internal_data = FALSE),
+      error=function(e) { message(tr, " gseKEGG: ", e$message); NULL })
+    if (!is.null(ek) && nrow(as.data.frame(ek)) > 0)
+      ek_list[[tr]] <- as.data.frame(ek) |>
+        filter(p.adjust < 0.05) |>
+        mutate(trait = tr)
+  }
+
+  ego_df <- if (length(ego_list) > 0) bind_rows(ego_list) else NULL
+  ek_df  <- if (length(ek_list)  > 0) bind_rows(ek_list)  else NULL
+  saveRDS(list(kegg=ek_df, go=ego_df), ck_enrich)
+}
+
+cat("KEGG terms:", if(is.null(ek_df)) 0 else nrow(ek_df), "\n")
+cat("GO terms:  ", if(is.null(ego_df)) 0 else nrow(ego_df), "\n")
+if (!is.null(ek_df))  write.table(ek_df,  file.path(OUT_DIR,"kegg_enrichment.tsv"),  sep="\t", row.names=FALSE)
+if (!is.null(ego_df)) write.table(ego_df, file.path(OUT_DIR,"go_enrichment.tsv"),    sep="\t", row.names=FALSE)
+```
+
+```{r enrichment_tables}
+if (!is.null(ek_df))
+  knitr::kable(dplyr::select(ek_df, trait, ID, Description, setSize, NES, p.adjust),
+               digits=4, caption="Significant KEGG pathways (GSEA)")
+if (!is.null(ego_df))
+  knitr::kable(head(dplyr::select(ego_df, trait, ONTOLOGY, ID, Description, setSize, NES, p.adjust), 30),
+               digits=4, caption="Top GO terms (GSEA, max 30)")
+```
+
+---
+
+# 9 · Enrichment visualisation
+
+```{r enrich_viz, fig.height=9, fig.width=8, fig.cap="GO term GSEA dotplot. Top 5 terms per trait (p.adjust < 0.05). Point size = gene set size; colour = ontology. Positive NES = enriched among high-scoring genes; negative NES = enriched among low-scoring genes."}
+if (ENRICHMENT_AVAILABLE && !is.null(ego_df) && nrow(ego_df) > 0) {
+
+  ont_cols    <- c(BP="#0072B5", CC="#20854E", MF="#BC3C29")
+  trait_order <- c("VIZ_COUNT","MATURE_ACORNS","IMMAT_ACORNS","ENLARGED_CUPS",
+                   "FLOWERS","CANOPY_CLOSURE","SPRING_PHENO","MIDNOV_LAI","SOIL_PC1")
+
+  go_top <- ego_df |>
+    dplyr::filter(p.adjust < 0.05) |>
+    dplyr::group_by(trait) |>
+    dplyr::slice_min(order_by=p.adjust, n=5, with_ties=FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::mutate(
+      trait = factor(trait, levels=intersect(trait_order, trait)),
+      label = ifelse(nchar(Description) > 45,
+                     paste0(substr(Description,1,42),"..."), Description)
+    )
+
+  p_go <- ggplot(go_top, aes(x=NES, y=reorder(label, NES),
+                              size=setSize, colour=ONTOLOGY)) +
+    geom_vline(xintercept=0, linetype="dashed", colour="grey60") +
+    geom_point(alpha=0.85) +
+    facet_wrap(~trait, scales="free_y", ncol=3) +
+    scale_colour_manual(values=ont_cols, name="Ontology") +
+    scale_size_continuous(range=c(2,7), name="Set size") +
+    labs(x="Normalised enrichment score (NES)", y=NULL) +
+    theme(
+      axis.text.y     = element_text(size=7),
+      strip.text      = element_text(size=8, face="bold"),
+      legend.position = "bottom",
+      legend.box      = "horizontal"
+    )
+
+  print(p_go)
+  ggsave(file.path(OUT_DIR, "go_dotplot.png"), p_go,
+         width=170, height=180, units="mm", dpi=300)
+} else {
+  cat("No significant GO terms to plot.\n")
+}
+```
+
+```{r kegg_viz, fig.height=3, fig.width=6, fig.cap="KEGG pathway GSEA. All significant pathways (p.adjust < 0.05); colour = trait. NES > 0 = pathway enriched in genes with positive GWAS scores."}
+if (ENRICHMENT_AVAILABLE && !is.null(ek_df) && nrow(ek_df) > 0) {
+  trait_order <- c("VIZ_COUNT","MATURE_ACORNS","IMMAT_ACORNS","ENLARGED_CUPS",
+                   "FLOWERS","CANOPY_CLOSURE","SPRING_PHENO","MIDNOV_LAI","SOIL_PC1")
+  trait_pal <- setNames(
+    c("#0072B5","#BC3C29","#20854E","#E18727","#7876B1","#6F99AD","#FFDC91","#EE4C97","#3B3B3B"),
+    trait_order
+  )
+
+  p_kegg <- ggplot(ek_df, aes(x=NES,
+                               y=reorder(Description, NES),
+                               size=setSize, colour=trait)) +
+    geom_vline(xintercept=0, linetype="dashed", colour="grey60") +
+    geom_point(alpha=0.9) +
+    scale_colour_manual(values=trait_pal[names(trait_pal) %in% ek_df$trait],
+                        name="Trait") +
+    scale_size_continuous(range=c(3,7), name="Set size") +
+    labs(x="Normalised enrichment score (NES)", y=NULL) +
+    theme(legend.position="right")
+
+  print(p_kegg)
+  ggsave(file.path(OUT_DIR, "kegg_dotplot.png"), p_kegg,
+         width=120, height=60, units="mm", dpi=300)
+} else {
+  cat("No significant KEGG pathways to plot.\n")
+}
+```
+
+---
+
+# 10 · Pleiotropy
+
+SNPs jointly significant (Q < 0.05) for pairs/groups of correlated traits
+suggest shared genetic architecture. Three comparisons from manuscript GLM:
+
+| Group | Traits |
+|-------|--------|
+| comp1 | VIZ_COUNT × CANOPY_CLOSURE |
+| comp2 | MATURE_ACORNS × SPRING_PHENO |
+| comp3 | ENLARGED_CUPS × SOIL_PC1 × MIDNOV_LAI |
+
+```{r pleiotropy}
+overlap <- function(q_df, traits, q_thr=0.05) {
+  miss <- setdiff(traits, colnames(q_df))
+  if (length(miss) > 0) { warning("Missing: ", paste(miss,collapse=",")); return(NULL) }
+  q_df[rowSums(q_df[,traits,drop=FALSE] < q_thr) == length(traits), ]
+}
+
+report <- function(df, label) {
+  if (is.null(df) || nrow(df)==0) { cat(label,": no jointly significant SNPs\n"); return(invisible()) }
+  cat(label,":", nrow(df), "jointly significant SNPs\n")
+  merged <- merge(df[,c("CHROM","POS")], as.data.frame(loci_annotated), by=c("CHROM","POS"))
+  fname  <- file.path(OUT_DIR, paste0(gsub("[^a-z0-9]","_",tolower(label)),".tsv"))
+  write.table(merged, fname, sep="\t", row.names=FALSE, quote=FALSE)
+  knitr::kable(head(merged,20), caption=paste(label,"— first 20 SNPs"))
+}
+
+report(overlap(lfmm_q, c("VIZ_COUNT","CANOPY_CLOSURE")),          "comp1 VIZ_COUNT x CANOPY_CLOSURE")
+report(overlap(lfmm_q, c("MATURE_ACORNS","SPRING_PHENO")),         "comp2 MATURE_ACORNS x SPRING_PHENO")
+report(overlap(lfmm_q, c("ENLARGED_CUPS","SOIL_PC1","MIDNOV_LAI")),"comp3 ENLARGED_CUPS x SOIL_PC1 x MIDNOV_LAI")
+```
+
+---
+
+# Session info
+
+```{r session}
+sessionInfo()
+```
