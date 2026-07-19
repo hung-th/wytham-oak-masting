@@ -14,17 +14,13 @@ gwas/gwas_analysis_cache/
 gwas/gwas_analysis_files/
 
 # Large GWAS genomic data files (>100 MB — share via Zenodo/OSF)
-gwas/WWO_37WGS_pruned.lfmm
-gwas/WWO_37WGS_pruned_imputed.lfmm
-gwas/WWO_37WGS_pruned.012
 gwas/WWO_37WGS_pruned_snmf_sub.snmf/
 gwas/lfmm2_res_WWO_37WGS_pruned_imputed.rds
 
-# GWAS output — large raw LFMM score files (>100 MB, share via Zenodo/OSF)
+# Large raw LFMM score files (>100 MB — share via Zenodo/OSF)
 gwas/output/n37/lfmm.z.tsv
 gwas/output/n37/lfmm.p.tsv
 gwas/output/n37/lfmm.q.tsv
-gwas/output/n37/loci_annotated.tsv
 
 # Temp / OS
 Thumbs.db
