@@ -1,0 +1,4 @@
+"category"	"subcategory"	"ID"	"Description"	"GeneRatio"	"BgRatio"	"RichFactor"	"FoldEnrichment"	"zScore"	"pvalue"	"p.adjust"	"qvalue"	"geneID"	"Count"	"trait"
+"Genetic Information Processing"	"Replication and repair"	"ath03030"	"DNA replication"	"1/1"	"43/6385"	0.0232558139534884	148.488372093023	12.1444790787017	0.00673453406421298	0.00673453406421298	NA	"AT4G02060"	1	"IMMAT_ACORNS"
+"Organismal Systems"	"Environmental adaptation"	"ath04626"	"Plant-pathogen interaction"	"1/1"	"217/6385"	0.00460829493087558	29.4239631336406	5.33141286467673	0.0339859044635865	0.0339859044635865	NA	"AT2G34930"	1	"SOIL_PC1"
+"Metabolism"	"Amino acid metabolism"	"ath00380"	"Tryptophan metabolism"	"1/1"	"65/6385"	0.0153846153846154	98.2307692307692	9.86056637474588	0.0101801096319499	0.0203602192638999	0.0107159048757368	"AT1G48910"	1	"MIDNOV_LAI"
