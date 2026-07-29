@@ -45,4 +45,19 @@ tryCatch(
 )
 cat("Done: gwas_analysis.Rmd\n")
 
+# ── Fix absolute Windows paths in MD src= attributes ─────────────────────────
+fix_paths <- function(md_file, strip_prefix) {
+  txt <- readLines(md_file, warn = FALSE)
+  txt <- gsub(strip_prefix, "", txt, fixed = TRUE)
+  writeLines(txt, md_file)
+}
+
+repo_root <- normalizePath(".", winslash = "/")
+for (f in analysis_rmds) {
+  md <- file.path("analysis", sub("\\.Rmd$", ".md", f))
+  if (file.exists(md))
+    fix_paths(md, paste0(repo_root, "/analysis/"))
+}
+fix_paths("gwas/gwas_analysis.md", paste0(repo_root, "/gwas/"))
+
 cat("\nAll done. Commit analysis/*.md, analysis/*_files/, gwas/*.md, gwas/*_files/\n")
