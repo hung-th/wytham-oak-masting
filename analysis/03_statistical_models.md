@@ -1,4 +1,4 @@
-Wytham Masting Study — Statistical Models
+﻿Wytham Masting Study — Statistical Models
 ================
 Wytham Masting Project
 2026-07-29
@@ -192,7 +192,7 @@ si_fig9
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/si-fig9-qq-1.png" alt="SI Fig. 9. Quantile-quantile plots for key response variables (a) before and (b) after log(x+1) transformation. Points on the diagonal indicate a normal distribution. Only MATURE_ACORNS and IMMAT_ACORNS required transformation to confirm skewness; the GLM uses raw values with Gamma(log) family." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/si-fig9-qq-1.png" alt="SI Fig. 9. Quantile-quantile plots for key response variables (a) before and (b) after log(x+1) transformation. Points on the diagonal indicate a normal distribution. Only MATURE_ACORNS and IMMAT_ACORNS required transformation to confirm skewness; the GLM uses raw values with Gamma(log) family." width="100%" />
 <p class="caption">
 
 SI Fig. 9. Quantile-quantile plots for key response variables (a) before
@@ -876,7 +876,7 @@ fig4
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/fig4-1.png" alt="Figure 4. Plots of relations for significant variables from generalised linear models on reproductive material of 38 pedunculate oak trees at Wytham Woods, Oxford. The visual mean acorn count (top left) is given per tree per annum. The other variables are from litter trap counts and are given as per m² per annum. Continuous lines represent linear regressions with shaded 95% confidence limits. The enlarged cup count mean by soil class (bottom right) gives the median, min, max and interquartile range. A post hoc Tukey pairwise analysis showed that Sandy Clay Loam soils had significantly fewer enlarged cups than those on Clay Loam or Sandy Loam soils (see Supplementary Table 8)." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/fig4-1.png" alt="Figure 4. Plots of relations for significant variables from generalised linear models on reproductive material of 38 pedunculate oak trees at Wytham Woods, Oxford. The visual mean acorn count (top left) is given per tree per annum. The other variables are from litter trap counts and are given as per m² per annum. Continuous lines represent linear regressions with shaded 95% confidence limits. The enlarged cup count mean by soil class (bottom right) gives the median, min, max and interquartile range. A post hoc Tukey pairwise analysis showed that Sandy Clay Loam soils had significantly fewer enlarged cups than those on Clay Loam or Sandy Loam soils (see Supplementary Table 8)." width="100%" />
 <p class="caption">
 
 Figure 4. Plots of relations for significant variables from generalised
@@ -1163,7 +1163,7 @@ p_rank_compare
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/producer-sensitivity-1.png" alt="Producer rank comparison: all 4 years (incl. 2020 mast) vs. 3 years (excl. 2020). Points coloured by original producer classification from df_model." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/producer-sensitivity-1.png" alt="Producer rank comparison: all 4 years (incl. 2020 mast) vs. 3 years (excl. 2020). Points coloured by original producer classification from df_model." width="100%" />
 <p class="caption">
 
 Producer rank comparison: all 4 years (incl. 2020 mast) vs. 3 years
@@ -1252,7 +1252,7 @@ si_fig4
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/si-fig4-fitted-1.png" alt="SI Fig. 4. Fitted vs. actual values for each GLM. Points on the broken diagonal indicate perfect agreement. R² (coefficient of determination) is shown for each model." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/si-fig4-fitted-1.png" alt="SI Fig. 4. Fitted vs. actual values for each GLM. Points on the broken diagonal indicate perfect agreement. R² (coefficient of determination) is shown for each model." width="100%" />
 <p class="caption">
 
 SI Fig. 4. Fitted vs. actual values for each GLM. Points on the broken
@@ -1622,7 +1622,7 @@ si_fig7
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/si-fig7-pm-1.png" alt="SI Fig. 7. Gall count vs. dry leaf weight (proxy for powdery mildew damage) in 2021. Line: GLM (Gamma, log link); shaded band: 95% CI." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/si-fig7-pm-1.png" alt="SI Fig. 7. Gall count vs. dry leaf weight (proxy for powdery mildew damage) in 2021. Line: GLM (Gamma, log link); shaded band: 95% CI." width="100%" />
 <p class="caption">
 
 SI Fig. 7. Gall count vs. dry leaf weight (proxy for powdery mildew
@@ -1914,7 +1914,7 @@ temporal_plot
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/temporal-plot-1.png" alt="Temporal correlations between annual mean acorn production (visual counts) and spring/summer temperature and precipitation. Points are labelled by year. n = 4; lines are OLS fits for illustration only." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/temporal-plot-1.png" alt="Temporal correlations between annual mean acorn production (visual counts) and spring/summer temperature and precipitation. Points are labelled by year. n = 4; lines are OLS fits for illustration only." width="100%" />
 <p class="caption">
 
 Temporal correlations between annual mean acorn production (visual
@@ -2333,7 +2333,7 @@ corr_plot
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/03_statistical_models_files/figure-gfm/corr-matrix-1.png" alt="Pearson correlation matrix of all continuous tree-level predictors. Blank cells = not significant (p &gt; 0.05). Values = Pearson r." width="100%" />
+<img src="03_statistical_models_files/figure-gfm/corr-matrix-1.png" alt="Pearson correlation matrix of all continuous tree-level predictors. Blank cells = not significant (p &gt; 0.05). Values = Pearson r." width="100%" />
 <p class="caption">
 
 Pearson correlation matrix of all continuous tree-level predictors.

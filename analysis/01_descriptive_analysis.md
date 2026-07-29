@@ -1,4 +1,4 @@
-Wytham Masting Study — Descriptive Analysis
+﻿Wytham Masting Study — Descriptive Analysis
 ================
 Wytham Masting Project
 2026-07-29
@@ -278,7 +278,7 @@ fig1a
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/01_descriptive_analysis_files/figure-gfm/fig1a-1.png" alt="Fig. 1a. Acorn counts per tree per year at Wytham Woods (visual method). Grey boxplots show the population distribution; individual trees shown as jittered points. Trees 36 (super-producer) and 27 (poor producer) are highlighted." width="100%" />
+<img src="01_descriptive_analysis_files/figure-gfm/fig1a-1.png" alt="Fig. 1a. Acorn counts per tree per year at Wytham Woods (visual method). Grey boxplots show the population distribution; individual trees shown as jittered points. Trees 36 (super-producer) and 27 (poor producer) are highlighted." width="100%" />
 <p class="caption">
 
 Fig. 1a. Acorn counts per tree per year at Wytham Woods (visual method).
@@ -328,7 +328,7 @@ fig1b_f
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/01_descriptive_analysis_files/figure-gfm/fig1b-f-panels-1.png" alt="Fig. 1b–f. Annual counts of reproductive and associated material from litter traps (0.25 m² per trap) under 38 pedunculate oak trees at Wytham Woods, 2021–2023. Note: litter traps were not deployed in 2020; that year's acorn production is captured by visual counts (Fig. 1a)." width="100%" />
+<img src="01_descriptive_analysis_files/figure-gfm/fig1b-f-panels-1.png" alt="Fig. 1b–f. Annual counts of reproductive and associated material from litter traps (0.25 m² per trap) under 38 pedunculate oak trees at Wytham Woods, 2021–2023. Note: litter traps were not deployed in 2020; that year's acorn production is captured by visual counts (Fig. 1a)." width="100%" />
 <p class="caption">
 
 Fig. 1b–f. Annual counts of reproductive and associated material from
@@ -423,7 +423,7 @@ fig2
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/01_descriptive_analysis_files/figure-gfm/fig2-counts-deviation-1.png" alt="Fig. 2. Total number of acorns produced by individual pedunculate oak trees at Wytham Woods over 2020, 2022, 2023 from visual counts (top); no acorns matured in 2021. Lower panels show deviation of each tree from the yearly mean acorn count. Trees are ranked from highest (Tree 36) to lowest (Tree 27) total production." width="100%" />
+<img src="01_descriptive_analysis_files/figure-gfm/fig2-counts-deviation-1.png" alt="Fig. 2. Total number of acorns produced by individual pedunculate oak trees at Wytham Woods over 2020, 2022, 2023 from visual counts (top); no acorns matured in 2021. Lower panels show deviation of each tree from the yearly mean acorn count. Trees are ranked from highest (Tree 36) to lowest (Tree 27) total production." width="100%" />
 <p class="caption">
 
 Fig. 2. Total number of acorns produced by individual pedunculate oak
@@ -533,7 +533,7 @@ fig3
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/01_descriptive_analysis_files/figure-gfm/fig3-correlation-1.png" alt="Fig. 3. Correlation between visual acorn counts and litter trap mature acorn counts per 0.25 m² for individual trees, 2021–2023 (2020 excluded as litter traps not deployed). Lines fitted by ordinary least squares per year." width="100%" />
+<img src="01_descriptive_analysis_files/figure-gfm/fig3-correlation-1.png" alt="Fig. 3. Correlation between visual acorn counts and litter trap mature acorn counts per 0.25 m² for individual trees, 2021–2023 (2020 excluded as litter traps not deployed). Lines fitted by ordinary least squares per year." width="100%" />
 <p class="caption">
 
 Fig. 3. Correlation between visual acorn counts and litter trap mature

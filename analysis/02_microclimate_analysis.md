@@ -1,4 +1,4 @@
-Wytham Masting Study — Microclimate Analysis
+﻿Wytham Masting Study — Microclimate Analysis
 ================
 Wytham Masting Project
 2026-07-29
@@ -187,7 +187,7 @@ si_fig1
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/02_microclimate_analysis_files/figure-gfm/si-fig1-temp-heatmap-1.png" alt="SI Fig. 1. Heatmap of daily mean temperature (°C) averaged across all tree-mounted loggers, 2020–2023. Grey cells indicate dates prior to logger deployment (loggers deployed October 2020) or dates with no logger data. The global colour scale spans -5.5°C to +28°C." width="100%" />
+<img src="02_microclimate_analysis_files/figure-gfm/si-fig1-temp-heatmap-1.png" alt="SI Fig. 1. Heatmap of daily mean temperature (°C) averaged across all tree-mounted loggers, 2020–2023. Grey cells indicate dates prior to logger deployment (loggers deployed October 2020) or dates with no logger data. The global colour scale spans -5.5°C to +28°C." width="100%" />
 <p class="caption">
 
 SI Fig. 1. Heatmap of daily mean temperature (°C) averaged across all
@@ -247,7 +247,7 @@ si_fig2
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/02_microclimate_analysis_files/figure-gfm/si-fig2-precip-heatmap-1.png" alt="SI Fig. 2. Heatmap of daily total precipitation (mm) at Wytham Woods, 2020–2023, from the UK Environmental Change Network (ECN) station." width="100%" />
+<img src="02_microclimate_analysis_files/figure-gfm/si-fig2-precip-heatmap-1.png" alt="SI Fig. 2. Heatmap of daily total precipitation (mm) at Wytham Woods, 2020–2023, from the UK Environmental Change Network (ECN) station." width="100%" />
 <p class="caption">
 
 SI Fig. 2. Heatmap of daily total precipitation (mm) at Wytham Woods,
@@ -341,7 +341,7 @@ si_fig3
 
 <div class="figure">
 
-<img src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/analysis/02_microclimate_analysis_files/figure-gfm/si-fig3-deviations-1.png" alt="SI Fig. 3. Difference of maximum, minimum and mean temperature for 38 individual pedunculate oak trees at Wytham Woods, Oxford from means of the whole sample. The x-axis is ordered by tree from high to low numbers of total acorns produced in 2020–2023." width="100%" />
+<img src="02_microclimate_analysis_files/figure-gfm/si-fig3-deviations-1.png" alt="SI Fig. 3. Difference of maximum, minimum and mean temperature for 38 individual pedunculate oak trees at Wytham Woods, Oxford from means of the whole sample. The x-axis is ordered by tree from high to low numbers of total acorns produced in 2020–2023." width="100%" />
 <p class="caption">
 
 SI Fig. 3. Difference of maximum, minimum and mean temperature for 38

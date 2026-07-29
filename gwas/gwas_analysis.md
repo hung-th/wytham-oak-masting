@@ -1,4 +1,4 @@
-Quercus robur Masting GWAS
+﻿Quercus robur Masting GWAS
 ================
 Tin Hang Hung
 2026-07-29
@@ -1594,7 +1594,7 @@ ggplot(rel, aes(x = RELATEDNESS_PHI)) +
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/relatedness_plot-1.png"
+src="gwas_analysis_files/figure-gfm/relatedness_plot-1.png"
 alt="Distribution of pairwise KING kinship coefficients." />
 <figcaption aria-hidden="true">Distribution of pairwise KING kinship
 coefficients.</figcaption>
@@ -1663,7 +1663,7 @@ p_scree <- ggplot(pve_df, aes(PC, pve)) +
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/pca_plots-1.png"
+src="gwas_analysis_files/figure-gfm/pca_plots-1.png"
 alt="PCA of LD-pruned SNPs. Broken-stick null shown on scree plot." />
 <figcaption aria-hidden="true">PCA of LD-pruned SNPs. Broken-stick null
 shown on scree plot.</figcaption>
@@ -1797,7 +1797,7 @@ ggplot(ce_df, aes(factor(K), ce)) +
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/snmf_plot-1.png"
+src="gwas_analysis_files/figure-gfm/snmf_plot-1.png"
 alt="sNMF cross-entropy by K. Minimum indicates optimal number of ancestral populations." />
 <figcaption aria-hidden="true">sNMF cross-entropy by K. Minimum
 indicates optimal number of ancestral populations.</figcaption>
@@ -1955,7 +1955,7 @@ ggarrange(plotlist = plots, ncol = 3, nrow = 3)
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/phenotype_plots-1.png"
+src="gwas_analysis_files/figure-gfm/phenotype_plots-1.png"
 alt="Q-Q plots of GWAS variables after log-transformation of acorn counts." />
 <figcaption aria-hidden="true">Q-Q plots of GWAS variables after
 log-transformation of acorn counts.</figcaption>
@@ -2000,7 +2000,7 @@ ggplot(raw, aes(soil_pca$x[,1], soil_pca$x[,2], colour = SOIL_CLASS)) +
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/soil_plot-1.png"
+src="gwas_analysis_files/figure-gfm/soil_plot-1.png"
 alt="Soil texture PCA. PC1 enters GWAS as SOIL_PC1." />
 <figcaption aria-hidden="true">Soil texture PCA. PC1 enters GWAS as
 SOIL_PC1.</figcaption>
@@ -2308,7 +2308,7 @@ pivot_longer(lfmm_p, all_of(GWAS_VARS), names_to="trait", values_to="p") |>
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/viz_p_hist-1.png"
+src="gwas_analysis_files/figure-gfm/viz_p_hist-1.png"
 alt="P-value histograms. Flat distribution = well-calibrated after genomic control." />
 <figcaption aria-hidden="true">P-value histograms. Flat distribution =
 well-calibrated after genomic control.</figcaption>
@@ -2330,7 +2330,7 @@ pivot_longer(lfmm_q, all_of(GWAS_VARS), names_to="trait", values_to="q") |>
   labs(x="Q-value", y="Count")
 ```
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/viz_q_hist-1.png)<!-- -->
+![](gwas_analysis_files/figure-gfm/viz_q_hist-1.png)<!-- -->
 
 ``` r
 ggsave(file.path(OUT_DIR, "qval_histograms.png"), last_plot(),
@@ -2397,31 +2397,31 @@ for (tr in GWAS_VARS) {
 
 ### VIZ_COUNT
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-1.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-1.png)<!-- -->\###
 MATURE_ACORNS
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-2.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-2.png)<!-- -->\###
 IMMAT_ACORNS
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-3.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-3.png)<!-- -->\###
 ENLARGED_CUPS
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-4.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-4.png)<!-- -->\###
 FLOWERS
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-5.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-5.png)<!-- -->\###
 CANOPY_CLOSURE
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-6.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-6.png)<!-- -->\###
 SPRING_PHENO
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-7.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-7.png)<!-- -->\###
 SOIL_PC1
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-8.png)<!-- -->\###
+![](gwas_analysis_files/figure-gfm/manhattan-8.png)<!-- -->\###
 MIDNOV_LAI
 
-![](C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/manhattan-9.png)<!-- -->
+![](gwas_analysis_files/figure-gfm/manhattan-9.png)<!-- -->
 
 ------------------------------------------------------------------------
 
@@ -2612,7 +2612,7 @@ if (ENRICHMENT_AVAILABLE && !is.null(ego_df) && nrow(ego_df) > 0) {
 
 <figure>
 <img
-src="C:/Users/th/Documents/wwo-masting/wytham-oak-masting/gwas/gwas_analysis_files/figure-gfm/enrich_viz-1.png"
+src="gwas_analysis_files/figure-gfm/enrich_viz-1.png"
 alt="GO term GSEA dotplot. Top 5 terms per trait (p.adjust &lt; 0.05). Point size = gene set size; colour = ontology. Positive NES = enriched among high-scoring genes; negative NES = enriched among low-scoring genes." />
 <figcaption aria-hidden="true">GO term GSEA dotplot. Top 5 terms per
 trait (p.adjust &lt; 0.05). Point size = gene set size; colour =
