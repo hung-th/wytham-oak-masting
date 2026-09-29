@@ -1,0 +1,2 @@
+# Store all files byte-for-byte (cache checks rely on exact file contents)
+* -text

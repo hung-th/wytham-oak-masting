@@ -1,0 +1,25 @@
+Response,Variable,VIF,df,Chisq,P_GLM,beta,z,Wald_chisq,P_GLMM
+Mature acorns (visual count),Crown Spread,1.191,1,1.783,0.1818,-0.0634,-2.745,,0.0061**
+Mature acorns (visual count),Tree Height,1.263,1,1.587,0.2078,0.0328,1.798,,0.0721
+Mature acorns (visual count),Spring Phenology,1.25,1,2.096,0.1476,-0.0367,-1.916,,0.0554
+Mature acorns (visual count),pH,1.177,1,0.669,0.4135,0.0862,0.822,,0.4109
+Mature acorns (visual count),Canopy Closure,1.07,1,8.152,0.0043**,-0.1694,-4.873,,<0.001***
+Mature acorns (litter trap),Spring Phenology,1.198,1,8.047,0.0046**,-0.0551,-3.562,,<0.001***
+Mature acorns (litter trap),Tree Height,1.198,1,1.286,0.2567,0.0255,1.665,,0.0960
+Immature acorns,Spring Phenology,4.891,1,1.498,0.2210,-0.0451,-1.343,,0.1792
+Immature acorns,Potassium,1.259,1,0.18,0.6716,6e-4,0.801,,0.4233
+Immature acorns,Mid-April LAI,4.241,1,0.073,0.7874,0.0025,0.228,,0.8200
+Immature acorns,Crown Spread,1.27,1,0.095,0.7582,-0.0173,-0.789,,0.4303
+Immature acorns,Phosphorus,1.426,1,1.117,0.2905,0.0176,1.361,,0.1735
+Immature acorns,Tree Height,1.408,1,0.001,0.9714,-0.003,-0.18,,0.8575
+Immature acorns,Stem Density,1.054,1,0.153,0.6957,-0.0325,-0.741,,0.4585
+Enlarged cups,Mid-November LAI,7.531,1,6.308,0.0120*,0.0348,2.25,,0.0244*
+Enlarged cups,Autumn Phenology,6.962,1,1.882,0.1701,-0.0647,-1.405,,0.1601
+Enlarged cups,pH,1.651,1,0.915,0.3388,-0.1518,-1.61,,0.1073
+Enlarged cups,Soil Class,1.125,5,22.312,<0.001***,,,16.289,0.0061**
+Flowers,Autumn Phenology,7.531,1,0.042,0.8372,-0.0067,-0.116,,0.9075
+Flowers,Mid-November LAI,7.966,1,2.295,0.1298,0.0276,1.331,,0.1831
+Flowers,AUPPC,4.115,1,0.23,0.6318,-0.0013,-0.087,,0.9310
+Flowers,Stem Density,1.232,1,0.003,0.9545,-0.0214,-0.447,,0.6550
+Flowers,Mid-April LAI,2.026,1,0.101,0.7504,0.0016,0.21,,0.8334
+Galls,Tree Height,,1,0.221,0.6383,0.005,0.356,,0.7217

@@ -1,0 +1,16 @@
+Comparison,Estimate,SE,z,P
+Clay Loam - Clay,0.4119,0.211,1.9522,0.3348
+Sandy Clay Loam - Clay,-0.5612,0.3093,-1.8142,0.4189
+Sandy Loam - Clay,0.6318,0.2374,2.6616,0.0705
+Loamy Sand - Clay,0.8891,0.5233,1.6991,0.4944
+Sand - Clay,0.8671,0.521,1.6643,0.5180
+Sandy Clay Loam - Clay Loam,-0.9732,0.2732,-3.5619,0.0042
+Sandy Loam - Clay Loam,0.2199,0.2061,1.0667,0.8785
+Loamy Sand - Clay Loam,0.4772,0.496,0.962,0.9183
+Sand - Clay Loam,0.4552,0.5336,0.853,0.9498
+Sandy Loam - Sandy Clay Loam,1.193,0.2859,4.1734,<0.001
+Loamy Sand - Sandy Clay Loam,1.4503,0.5257,2.7587,0.0544
+Sand - Sandy Clay Loam,1.4284,0.5925,2.4108,0.1316
+Loamy Sand - Sandy Loam,0.2573,0.4986,0.516,0.9947
+Sand - Sandy Loam,0.2353,0.5412,0.4348,0.9976
+Sand - Loamy Sand,-0.022,0.715,-0.0308,1.0000

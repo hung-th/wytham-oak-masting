@@ -1,0 +1,25 @@
+Response,Term,df,Sum Sq,Mean Sq,F,P
+Maximum temperature,Producer,2,45.5,22.8,2.128,0.1191
+Maximum temperature,Period,2,489003.9,244501.9,22854.251,<0.001
+Maximum temperature,Year,3,5937.5,1979.2,184.998,<0.001
+Maximum temperature,Producer × Period,4,33.4,8.4,0.781,0.5371
+Maximum temperature,Producer × Year,6,16.1,2.7,0.251,0.9592
+Maximum temperature,Residuals,30901,330588.6,10.7,,
+Minimum temperature,Producer,2,9.2,4.6,0.438,0.6456
+Minimum temperature,Period,2,471910.4,235955.2,22482.396,<0.001
+Minimum temperature,Year,3,5464.8,1821.6,173.567,<0.001
+Minimum temperature,Producer × Period,4,22.7,5.7,0.541,0.7060
+Minimum temperature,Producer × Year,6,6.6,1.1,0.104,0.9959
+Minimum temperature,Residuals,30901,324309.3,10.5,,
+Mean temperature,Producer,2,15.7,7.8,0.742,0.4763
+Mean temperature,Period,2,478690,239345,22648.306,<0.001
+Mean temperature,Year,3,5715.9,1905.3,180.292,<0.001
+Mean temperature,Producer × Period,4,26.2,6.5,0.62,0.6485
+Mean temperature,Producer × Year,6,8.8,1.5,0.139,0.9911
+Mean temperature,Residuals,30901,326558.6,10.6,,
+Accumulated mean temperature,Producer,2,2418.2,1209.1,0.217,0.8050
+Accumulated mean temperature,Period,2,110461877.1,55230938.6,9913.594,<0.001
+Accumulated mean temperature,Year,3,1201011.6,400337.2,71.858,<0.001
+Accumulated mean temperature,Producer × Period,4,9225,2306.2,0.414,0.7986
+Accumulated mean temperature,Producer × Year,6,4586.3,764.4,0.137,0.9913
+Accumulated mean temperature,Residuals,313,1743795.8,5571.2,,

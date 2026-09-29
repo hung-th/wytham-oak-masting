@@ -1,0 +1,479 @@
+---
+title: "1. Inter-annual and inter-tree variability in acorn production"
+output:
+  github_document:
+    html_preview: false
+    toc: true
+---
+
+```{r knitr-setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      comment = "#>", results = "hold")
+```
+
+This notebook contains the analyses of mature-acorn production and shed
+reproductive structures of the 38 study trees (Results: *Inter-annual
+variability in acorn production*).
+
+| Output | Content |
+|---|---|
+| Figure 1 | Annual visual counts (a) and litter-trap contents (b–f) |
+| Figure 2 | Total visual acorn count per tree and yearly deviations |
+| Figure 3 | Visual counts vs. litter-trap mature acorns |
+| Supplementary Table 1 | Visual acorn counts per tree and year |
+| Supplementary Tables 2–5 | Litter-trap immature acorns, enlarged cups, flowers, galls |
+| Supplementary Figure 11 | Robustness of producer classes (2020 exclusion; class thresholds) |
+| `data/derived/` | Tree-level response table and producer classes used downstream |
+
+```{r setup}
+source("R/setup.R")
+set.seed(2020)
+```
+
+# Data
+
+Mature acorns were counted by visual survey each September (2020–2023).
+Litter-trap contents (four 0.25 m² traps per tree) are stored as the mean
+count per trap per tree and year (2021–2023).
+
+```{r load}
+viz  <- load_visual_counts()
+trap <- load_litter_traps()
+
+viz_wide <- viz |>
+  pivot_wider(names_from = Year, values_from = Count) |>
+  select(Tree, all_of(as.character(STUDY_YEARS)))
+
+stopifnot(nrow(viz_wide) == 38, !anyNA(viz_wide))
+cat("Visual survey:", n_distinct(viz$Tree), "trees x", n_distinct(viz$Year), "years\n")
+cat("Litter traps :", n_distinct(trap$Tree), "trees;",
+    "tree-years per year:", paste(table(trap$Year), collapse = " / "), "\n")
+cat("Trees without 2023 litter-trap record (traps destroyed):",
+    paste(setdiff(STUDY_TREES, trap$Tree[trap$Year == 2023]), collapse = ", "), "\n")
+```
+
+# Mature acorn production (visual survey)
+
+## Supplementary Table 1 and producer classes
+
+Trees are ranked by their total count over 2020–2023. Producer classes
+follow the cumulative share of the total crop: **high** producers are the
+top-ranked trees that together produce ≥ 50% of the crop, **medium**
+producers are the following trees up to a cumulative share of ≥ 95%, and the
+remaining trees (~5% of the crop) are **low** producers. The per-tree
+coefficient of variation (CV) is computed across all four study years,
+including the 2021 crop failure.
+
+```{r producer-classes}
+classify_producers <- function(total, high = 0.50, medium = 0.95) {
+  ord   <- order(total, decreasing = TRUE)
+  cum   <- cumsum(total[ord]) / sum(total)
+  n_hi  <- which(cum >= high)[1]
+  n_med <- which(cum >= medium)[1]
+  cls   <- character(length(total))
+  cls[ord] <- c(rep("High", n_hi), rep("Medium", n_med - n_hi),
+                rep("Low", length(total) - n_med))
+  factor(cls, levels = c("High", "Medium", "Low"))
+}
+
+cv <- function(x) sd(x) / mean(x)
+
+viz_tree <- viz_wide |>
+  mutate(Total = `2020` + `2021` + `2022` + `2023`,
+         CV    = apply(across(`2020`:`2023`), 1, cv),
+         Class = classify_producers(Total)) |>
+  arrange(desc(Total)) |>
+  mutate(Rank = row_number())
+
+table(viz_tree$Class)
+```
+
+```{r st1}
+year_tot <- colSums(viz_wide[, -1])
+pct <- function(x, tot) if (tot > 0) sprintf("%.2f%%", 100 * x / tot) else rep("na", length(x))
+
+st1 <- viz_tree |>
+  transmute(Tree,
+            `2020` = `2020`, `% 2020` = pct(`2020`, year_tot["2020"]),
+            `2021` = `2021`, `% 2021` = pct(`2021`, year_tot["2021"]),
+            `2022` = `2022`, `% 2022` = pct(`2022`, year_tot["2022"]),
+            `2023` = `2023`, `% 2023` = pct(`2023`, year_tot["2023"]),
+            Total, `% Total` = pct(Total, sum(Total)),
+            CV = round(CV, 2), Class)
+
+st1_total <- tibble(Tree = "Total",
+                    `2020` = year_tot[["2020"]], `% 2020` = "100%",
+                    `2021` = year_tot[["2021"]], `% 2021` = "na",
+                    `2022` = year_tot[["2022"]], `% 2022` = "100%",
+                    `2023` = year_tot[["2023"]], `% 2023` = "100%",
+                    Total = sum(viz_tree$Total), `% Total` = "100%",
+                    CV = round(mean(viz_tree$CV), 2), Class = NA)
+
+st1_out <- bind_rows(st1 |> mutate(Class = as.character(Class)), st1_total)
+save_tab(st1_out, "SuppTable01_visual_counts")
+knitr::kable(st1_out)
+```
+
+## Variability, synchrony and rank consistency
+
+* **Individual CV**: mean of per-tree CVs across the four years.
+* **Among-tree CV**: CV across trees within each productive year.
+* **Synchrony**: mean pairwise Pearson correlation of the four-year count
+  series across all 703 tree pairs, with a t-based 95% CI over pairs.
+* **Lag-1 autocorrelation**: Pearson correlation between each tree's counts
+  in consecutive years (2020→2021, 2021→2022, 2022→2023), averaged across
+  trees.
+* **Rank consistency**: Kendall's τ between each pair of productive years
+  (2021 excluded: no tree produced mature acorns).
+
+```{r variability}
+m <- as.matrix(viz_wide[, -1]); rownames(m) <- viz_wide$Tree
+
+among_cv <- sapply(c("2020", "2022", "2023"), function(y) 100 * cv(m[, y]))
+
+r_pairs <- cor(t(m))[upper.tri(diag(nrow(m)))]
+sync_ci <- t.test(r_pairs)$conf.int
+
+# undefined for trees whose 2021–2023 counts are constant (e.g. 0, 0, 0)
+lag1_tree <- apply(m, 1, function(x) suppressWarnings(cor(x[-length(x)], x[-1])))
+lag1_mean <- mean(lag1_tree, na.rm = TRUE)
+cat("Lag-1 autocorrelation defined for", sum(!is.na(lag1_tree)), "of", length(lag1_tree), "trees\n")
+
+tau_pairs <- combn(c("2020", "2022", "2023"), 2, function(y) {
+  kt <- cor.test(m[, y[1]], m[, y[2]], method = "kendall", exact = FALSE)
+  tibble(Years = paste(y, collapse = "–"), tau = unname(kt$estimate),
+         z = unname(kt$statistic), P = kt$p.value)
+}, simplify = FALSE) |> bind_rows()
+
+knitr::kable(tau_pairs, digits = 3, caption = "Kendall rank correlations between productive years")
+```
+
+## Producer classes: CV and crop share
+
+```{r class-summary}
+class_summary <- viz_tree |>
+  group_by(Class) |>
+  summarise(n_trees = n(),
+            crop_share_pct = 100 * sum(Total) / sum(viz_tree$Total),
+            CV_mean = mean(CV), CV_se = sd(CV) / sqrt(n()), .groups = "drop")
+knitr::kable(class_summary, digits = 3)
+
+cv_aov   <- aov(CV ~ Class, data = viz_tree)
+cv_anova <- summary(cv_aov)[[1]]
+cv_tukey <- TukeyHSD(cv_aov)$Class
+cv_anova
+cv_tukey
+```
+
+## Figure 2
+
+```{r fig2, results="asis", fig.show="hide"}
+tree_levels <- viz_tree$Tree
+
+fig2_top <- viz |>
+  filter(Year != 2021) |>
+  mutate(Tree = factor(Tree, levels = tree_levels), Year = factor(Year)) |>
+  ggplot(aes(Tree, Count, fill = Year)) +
+  geom_col(width = 0.85) +
+  scale_fill_manual(values = YEAR_COLS, name = NULL) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.03))) +
+  labs(x = NULL, y = "Acorn counts") +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.position = "inside", legend.position.inside = c(0.98, 0.95),
+        legend.justification = c(1, 1), legend.direction = "horizontal")
+
+dev_panel <- function(yr, xlab = FALSE) {
+  d <- viz |>
+    filter(Year == yr) |>
+    mutate(Deviation = Count - mean(Count),
+           Tree = factor(Tree, levels = tree_levels))
+  p <- ggplot(d, aes(Tree, Deviation)) +
+    geom_col(fill = "grey70", colour = "grey40", width = 0.8, linewidth = 0.2) +
+    geom_hline(yintercept = 0, linewidth = 0.4) +
+    annotate("text", x = Inf, y = Inf, label = yr, hjust = 1.1, vjust = 1.3,
+             fontface = "bold", size = 3.5) +
+    scale_y_continuous(limits = c(-150, 350)) +
+    labs(x = if (xlab) "Tree" else NULL, y = NULL)
+  if (!xlab) p <- p + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+  else       p <- p + theme(axis.text.x = element_text(size = 7))
+  p
+}
+
+fig2 <- fig2_top / dev_panel(2020) / (dev_panel(2022) + labs(y = "Deviation from yearly mean acorn count")) /
+  dev_panel(2023, xlab = TRUE) + plot_layout(heights = c(1.4, 1, 1, 1))
+save_fig(fig2, "Figure2", width = 150, height = 120)
+```
+
+# Shed reproductive structures (litter traps)
+
+## Supplementary Tables 2–5
+
+Tables list the mean count per 0.25 m² trap for each year, each tree's share
+of the yearly total, and the three-year total, with trees ordered as in
+Supplementary Table 1. `na`: traps destroyed in 2023.
+
+```{r st2-5}
+litter_table <- function(var) {
+  d <- trap |>
+    select(Tree, Year, value = all_of(var)) |>
+    pivot_wider(names_from = Year, values_from = value) |>
+    right_join(tibble(Tree = tree_levels), by = "Tree") |>
+    mutate(Tree = factor(Tree, levels = tree_levels)) |>
+    arrange(Tree)
+  tot_y <- colSums(d[, c("2021", "2022", "2023")], na.rm = TRUE)
+  d <- d |> mutate(Total = rowSums(across(`2021`:`2023`), na.rm = TRUE))
+  f2 <- function(x) ifelse(is.na(x), "na", formatC(x, format = "f", digits = 2))
+  pc <- function(x, t) ifelse(is.na(x), "na", sprintf("%.2f%%", 100 * x / t))
+  out <- tibble(Tree = as.character(d$Tree),
+                `2021` = f2(d$`2021`), `% 2021` = pc(d$`2021`, tot_y[["2021"]]),
+                `2022` = f2(d$`2022`), `% 2022` = pc(d$`2022`, tot_y[["2022"]]),
+                `2023` = f2(d$`2023`), `% 2023` = pc(d$`2023`, tot_y[["2023"]]),
+                Total  = f2(d$Total),  `% Total` = pc(d$Total, sum(d$Total)))
+  bind_rows(out, tibble(Tree = "Total",
+                        `2021` = f2(tot_y[["2021"]]), `% 2021` = "100%",
+                        `2022` = f2(tot_y[["2022"]]), `% 2022` = "100%",
+                        `2023` = f2(tot_y[["2023"]]), `% 2023` = "100%",
+                        Total = f2(sum(d$Total)), `% Total` = "100%"))
+}
+
+supp_litter <- c(SuppTable02_immature_acorns = "IMMAT_ACORNS",
+                 SuppTable03_enlarged_cups   = "ENLARGED_CUPS",
+                 SuppTable04_flowers         = "FLOWERS",
+                 SuppTable05_galls           = "GALLS")
+for (nm in names(supp_litter)) save_tab(litter_table(supp_litter[[nm]]), nm)
+knitr::kable(litter_table("IMMAT_ACORNS"), caption = "Supplementary Table 2 (immature acorns)")
+```
+
+## Concentration of production among trees
+
+For each litter-trap category, the number of top-ranked trees needed to reach
+50% of the three-year total, the share of the seven top trees, and how many of
+those trees are high (mature-acorn) producers.
+
+```{r concentration}
+high_trees <- viz_tree$Tree[viz_tree$Class == "High"]
+
+concentration <- map_dfr(LITTER_VARS, function(v) {
+  tot <- trap |> group_by(Tree) |> summarise(x = sum(.data[[v]], na.rm = TRUE)) |>
+    arrange(desc(x))
+  cum <- cumsum(tot$x) / sum(tot$x)
+  n50 <- which(cum >= 0.5)[1]
+  tibble(Variable = v,
+         n_trees_for_50pct = n50,
+         top7_share_pct = 100 * cum[7],
+         high_producers_in_top_n50 = sum(tot$Tree[1:n50] %in% high_trees))
+})
+knitr::kable(concentration, digits = 1)
+```
+
+## Figure 1
+
+```{r fig1, results="asis", fig.show="hide"}
+focal <- c("36" = "Tree 36 (highest total)", "27" = "Tree 27 (lowest total)")
+
+viz_plot <- viz |> mutate(Year = factor(Year),
+                          Focal = factor(focal[Tree], levels = focal))
+
+fig1a <- ggplot(viz_plot, aes(Year, Count)) +
+  geom_boxplot(outlier.shape = NA, fill = "grey90", colour = "grey40", width = 0.5) +
+  geom_jitter(data = filter(viz_plot, is.na(Focal)), colour = "grey60",
+              size = 1.3, alpha = 0.8, width = 0.15, height = 0) +
+  geom_point(data = filter(viz_plot, !is.na(Focal)),
+             aes(shape = Focal, colour = Focal), size = 2.2) +
+  scale_shape_manual(values = c(17, 15), name = NULL) +
+  scale_colour_manual(values = c("firebrick", "steelblue4"), name = NULL) +
+  scale_y_continuous(breaks = seq(0, 400, 100), expand = expansion(mult = c(0.03, 0.22))) +
+  labs(x = NULL, y = "Acorn count (visual)") +
+  guides(shape = guide_legend(nrow = 2), colour = guide_legend(nrow = 2)) +
+  theme(legend.position = "top", legend.margin = margin(0, 0, 0, 0),
+        legend.spacing.y = unit(0, "pt"), legend.key.height = unit(10, "pt"))
+
+trap_long <- trap |>
+  pivot_longer(all_of(LITTER_VARS), names_to = "Category", values_to = "Count") |>
+  mutate(Year = factor(Year))
+
+litter_panel <- function(v) {
+  ggplot(filter(trap_long, Category == v), aes(Year, Count)) +
+    geom_boxplot(outlier.shape = NA, fill = "grey90", colour = "grey40", width = 0.5) +
+    geom_jitter(size = 1, alpha = 0.7, width = 0.15, height = 0) +
+    labs(x = NULL, y = "Count per trap (0.25 m²)", subtitle = VAR_LABELS[[v]])
+}
+lp <- map(LITTER_VARS, litter_panel)
+lp[[1]] <- lp[[1]] + labs(subtitle = "Mature acorns")
+
+fig1b_f <- wrap_plots(lp, ncol = 3) + plot_layout(axis_titles = "collect")
+
+save_fig(fig1a, "Figure1a", width = 60, height = 60)
+save_fig(fig1b_f, "Figure1b-f", width = 120, height = 120)
+```
+
+## Figure 3: visual counts vs. litter-trap mature acorns
+
+Trees whose traps were destroyed in 2023 (3, 6, 32, 34, 36) are excluded.
+No mature acorns were recorded by either method in 2021.
+
+```{r fig3, results="asis", fig.show="hide"}
+DAMAGED <- c("3", "6", "32", "34", "36")
+
+method_cmp <- inner_join(viz, trap |> select(Tree, Year, MATURE_ACORNS),
+                         by = c("Tree", "Year")) |>
+  filter(!Tree %in% DAMAGED)
+
+ktest <- function(d) {
+  kt <- cor.test(d$Count, d$MATURE_ACORNS, method = "kendall", exact = FALSE)
+  tibble(n = nrow(d), tau = unname(kt$estimate), z = unname(kt$statistic), P = kt$p.value)
+}
+method_tau <- bind_rows(
+  ktest(filter(method_cmp, Year == 2022)) |> mutate(Data = "2022"),
+  ktest(filter(method_cmp, Year == 2023)) |> mutate(Data = "2023"),
+  ktest(filter(method_cmp, Year %in% 2022:2023)) |> mutate(Data = "2022–2023 pooled")
+) |> relocate(Data)
+knitr::kable(method_tau, digits = 3)
+
+fig3 <- method_cmp |>
+  filter(Year != 2021) |>
+  mutate(Year = factor(Year)) |>
+  ggplot(aes(Count, MATURE_ACORNS, colour = Year, shape = Year, linetype = Year)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE, linewidth = 0.8) +
+  scale_colour_manual(values = YEAR_COLS[c("2022", "2023")], name = NULL) +
+  scale_shape_manual(values = c("2022" = 17, "2023" = 15), name = NULL) +
+  scale_linetype_manual(values = c("2022" = "solid", "2023" = "dashed"), name = NULL) +
+  labs(x = "Visual acorn count", y = "Mature acorns\nper trap (0.25 m²)") +
+  theme(legend.position = "top", legend.margin = margin(0, 0, -8, 0))
+save_fig(fig3, "Figure3", width = 65, height = 60)
+```
+
+# Robustness of producer classes (Supplementary Figure 11)
+
+**(a) Exclusion of the 2020 mast year.** Trees are re-ranked on their
+2021–2023 totals and compared with the 2020–2023 ranking.
+
+**(b) Class thresholds.** The cumulative-share thresholds defining high
+(40–60%) and low (2.5–10% of the crop) producers are varied. For each
+combination we record the proportion of trees keeping their class and the
+one-way ANOVA of per-tree CV among classes.
+
+```{r sensitivity}
+rank_cmp <- viz_tree |>
+  mutate(Total_no2020 = `2021` + `2022` + `2023`,
+         Rank_all    = rank(-Total, ties.method = "min"),
+         Rank_no2020 = rank(-Total_no2020, ties.method = "min"))
+tau_no2020 <- cor.test(rank_cmp$Rank_all, rank_cmp$Rank_no2020,
+                       method = "kendall", exact = FALSE)
+
+grid <- expand_grid(high = c(0.40, 0.45, 0.50, 0.55, 0.60),
+                    low  = c(0.025, 0.05, 0.075, 0.10))
+threshold_sens <- pmap_dfr(grid, function(high, low) {
+  cls <- classify_producers(viz_tree$Total, high = high, medium = 1 - low)
+  a   <- summary(aov(viz_tree$CV ~ cls))[[1]]
+  mcv <- tapply(viz_tree$CV, cls, mean)
+  tibble(high_pct = 100 * high, low_pct = 100 * low,
+         n_high = sum(cls == "High"), n_medium = sum(cls == "Medium"), n_low = sum(cls == "Low"),
+         agreement_pct = 100 * mean(cls == viz_tree$Class),
+         F = a$`F value`[1], df1 = a$Df[1], df2 = a$Df[2], P = a$`Pr(>F)`[1],
+         high_lowest_CV = mcv[["High"]] == min(mcv))
+})
+save_tab(threshold_sens |> mutate(across(c(F, P), ~ signif(.x, 4))),
+         "SuppFig11_threshold_sensitivity")
+knitr::kable(threshold_sens, digits = 3)
+```
+
+```{r sf11, results="asis", fig.show="hide"}
+sf11a <- ggplot(rank_cmp, aes(Rank_all, Rank_no2020, colour = Class)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_point(size = 2) +
+  annotate("text", x = 1, y = 38, hjust = 0, vjust = 1, size = 3.2,
+           label = sprintf("Kendall's τ = %.3f", tau_no2020$estimate)) +
+  scale_colour_manual(values = CLASS_COLS, name = "Producer class") +
+  scale_x_continuous(breaks = c(1, 10, 20, 30, 38)) +
+  scale_y_continuous(breaks = c(1, 10, 20, 30, 38)) +
+  labs(x = "Rank, 2020–2023", y = "Rank, 2021–2023 (excl. 2020)") +
+  theme(legend.position = "bottom")
+
+sf11b <- threshold_sens |>
+  mutate(label = sprintf("%.0f%%\nP=%.3f", agreement_pct, P)) |>
+  ggplot(aes(factor(high_pct), factor(low_pct), fill = agreement_pct)) +
+  geom_tile(colour = "white") +
+  geom_text(aes(label = label), size = 2.4) +
+  scale_fill_gradient(low = "grey95", high = "#0072B5", limits = c(50, 100),
+                      name = "Class\nagreement (%)") +
+  labs(x = "High-producer threshold (% of crop)",
+       y = "Low-producer threshold\n(% of crop)") +
+  theme(legend.position = "bottom")
+
+save_fig(sf11a, "SuppFig11a_producer_rank_comparison", width = 100, height = 90)
+save_fig(sf11b, "SuppFig11b_producer_threshold_grid", width = 100, height = 90)
+```
+
+# Key results
+
+```{r key-results}
+hi <- class_summary |> filter(Class == "High")
+md <- class_summary |> filter(Class == "Medium")
+lo <- class_summary |> filter(Class == "Low")
+
+key01 <- tribble(
+  ~Statistic, ~Value,
+  "Trees in study panel", as.character(nrow(viz_tree)),
+  "2020 visual count range", sprintf("%d–%d", min(m[, "2020"]), max(m[, "2020"])),
+  "Highest total (Tree 36) / margin over 2nd", sprintf("%d / %d", viz_tree$Total[1], viz_tree$Total[1] - viz_tree$Total[2]),
+  "Lowest total", sprintf("Tree %s (%d)", viz_tree$Tree[38], viz_tree$Total[38]),
+  "Mean individual CV (%)", sprintf("%.1f", 100 * mean(viz_tree$CV)),
+  "Among-tree CV 2020 / 2022 / 2023 (%)", paste(sprintf("%.1f", among_cv), collapse = " / "),
+  "Synchrony, mean pairwise r (95% CI)", sprintf("%.2f (%.2f–%.2f)", mean(r_pairs), sync_ci[1], sync_ci[2]),
+  "Lag-1 autocorrelation (mean of per-tree correlations)",
+    sprintf("%.2f (n = %d trees)", lag1_mean, sum(!is.na(lag1_tree))),
+  "Kendall tau 2020–22 / 2020–23 / 2022–23", paste(sprintf("%.2f", tau_pairs$tau), collapse = " / "),
+  "High producers: n, crop share", sprintf("%d, %.1f%%", hi$n_trees, hi$crop_share_pct),
+  "Medium producers: n, crop share", sprintf("%d, %.1f%%", md$n_trees, md$crop_share_pct),
+  "Low producers: n, crop share", sprintf("%d, %.1f%%", lo$n_trees, lo$crop_share_pct),
+  "CV (mean ± SE) high / medium / low", sprintf("%.2f ± %.2f / %.2f ± %.2f / %.2f ± %.2f",
+     hi$CV_mean, hi$CV_se, md$CV_mean, md$CV_se, lo$CV_mean, lo$CV_se),
+  "ANOVA CV ~ class", sprintf("F(%d,%d) = %.2f, P = %.3f", cv_anova$Df[1], cv_anova$Df[2],
+                              cv_anova$`F value`[1], cv_anova$`Pr(>F)`[1]),
+  "Tukey High vs Medium / High vs Low (P)", sprintf("%.3f / %.3f",
+     cv_tukey["Medium-High", "p adj"], cv_tukey["Low-High", "p adj"]),
+  "Visual vs trap, 2022 (tau, z)", sprintf("%.2f, %.2f", method_tau$tau[1], method_tau$z[1]),
+  "Visual vs trap, 2023 (tau, z)", sprintf("%.2f, %.2f", method_tau$tau[2], method_tau$z[2]),
+  "Visual vs trap, 2022–2023 pooled (tau, z)", sprintf("%.2f, %.2f", method_tau$tau[3], method_tau$z[3]),
+  "Rank tau, all years vs excl. 2020", sprintf("%.3f", tau_no2020$estimate),
+  "Threshold combinations with P < 0.05 for CV ~ class", sprintf("%d of %d", sum(threshold_sens$P < 0.05), nrow(threshold_sens))
+) |> mutate(Value = as.character(Value))
+save_tab(key01, "key_results_01_acorn_production")
+knitr::kable(key01)
+```
+
+# Derived data for downstream analyses
+
+`tree_reproduction.csv` holds one row per tree with the response variables
+used in the association analyses:
+
+* `VIZ_COUNT` – mean visual count over 2020–2022 (response in the VSURF,
+  GLM and descriptive statistics of Table 1);
+* `VIZ_COUNT_2020_2023` – mean visual count over all four years (GWAS
+  phenotype);
+* litter-trap variables – mean count per 0.25 m² trap over the available
+  years 2021–2023.
+
+```{r derived}
+tree_repro <- viz_wide |>
+  transmute(Tree,
+            VIZ_COUNT           = (`2020` + `2021` + `2022`) / 3,
+            VIZ_COUNT_2020_2023 = (`2020` + `2021` + `2022` + `2023`) / 4) |>
+  left_join(trap |> group_by(Tree) |>
+              summarise(across(all_of(LITTER_VARS), mean), .groups = "drop"),
+            by = "Tree") |>
+  left_join(viz_tree |> select(Tree, Total_visual = Total, CV_visual = CV, Class),
+            by = "Tree")
+
+write_csv(tree_repro, file.path(DIR_DERIVED, "tree_reproduction.csv"))
+write_csv(viz_tree |> select(Tree, Rank, Total, Class),
+          file.path(DIR_DERIVED, "producer_classes.csv"))
+glimpse(tree_repro)
+```
+
+```{r session}
+sessionInfo()
+```

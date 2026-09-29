@@ -1,0 +1,19 @@
+Statistic,Value
+VSURF variables (union over responses),15
+VSURF variables per response,5 / 2 / 7 / 5 / 6 / 1
+OOB error reduction range (%),16.2–25.9
+RF R² fitted (range),0.73–0.92
+Visual count ~ Canopy Closure,"GLM chi2 = 8.15, P = 0.0043; GLMM beta = -0.169, z = -4.87, P = 0.0000"
+Visual count ~ Crown Spread,"GLM chi2 = 1.78, P = 0.1818; GLMM beta = -0.063, z = -2.74, P = 0.0061"
+Visual count ~ Spring Phenology,"GLM chi2 = 2.10, P = 0.1476; GLMM beta = -0.037, z = -1.92, P = 0.0554"
+Trap mature acorns ~ Spring Phenology,"GLM chi2 = 8.05, P = 0.0046; GLMM beta = -0.055, z = -3.56, P = 0.0004"
+Enlarged cups ~ Mid-November LAI,"GLM chi2 = 6.31, P = 0.0120; GLMM beta = 0.035, z = 2.25, P = 0.0244"
+"Enlarged cups ~ Soil Class (GLM chi2, df, P)","22.31, 5, 0.0005"
+Galls ~ Tree Height,"GLM chi2 = 0.22, P = 0.6383; GLMM beta = 0.005, z = 0.36, P = 0.7217"
+"Smallest GLM P, flowers",0.1298
+"Smallest GLM P, immature acorns",0.2210
+DHARMa KS P (min),0.294
+Kinship ~ producer class,"F(2,33) = 0.538, P = 0.59"
+Kinship high / medium / low (mean ± SE),4.19 ± 0.04 / 4.29 ± 0.06 / 4.24 ± 0.04
+"Galls ~ powdery mildew (estimate, P)","-0.0622, 0.0104"
+"Flowers ~ powdery mildew (estimate, P)","-0.0300, 0.1152"

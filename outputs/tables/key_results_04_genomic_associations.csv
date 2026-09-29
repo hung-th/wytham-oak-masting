@@ -1,0 +1,15 @@
+Statistic,Value
+Sequenced trees,37
+"Raw bases, mean (SD) Gb",51.16 (6.35)
+SNPs analysed,"1,013,644"
+Leading PCs above broken stick,0
+"Variance explained, PC1 (%)",3.0
+sNMF minimum cross-entropy K,1
+"Kinship classes (>3° / 3° / 2° / 1°, %)",67.87 / 26.28 / 5.56 / 0.30
+Soil PC1 variance (%),95.4
+Trait–SNP associations / unique SNPs,2366 / 2306
+Significant SNPs per variable,VIZ_COUNT 1322; MATURE_ACORNS 102; IMMAT_ACORNS 61; ENLARGED_CUPS 399; FLOWERS 178; CANOPY_CLOSURE 83; SPRING_PHENO 100; SOIL_PC1 11; MIDNOV_LAI 110
+Lambda range,1.0068–1.0616
+Shared VIZ_COUNT × CANOPY_CLOSURE SNPs,Qrob_Chr07:48460945 (non-coding); Qrob_H2.3_Sc0001141:9015 (non-coding)
+GO terms for VIZ_COUNT (Q < 0.05),6
+"KEGG pathways (any variable, Q < 0.05)",1

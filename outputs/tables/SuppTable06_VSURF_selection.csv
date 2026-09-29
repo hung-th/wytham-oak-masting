@@ -1,0 +1,7 @@
+Response,Number selected,Variables selected,OOB MSE at thresholding,OOB MSE at interpretation,Error reduction (%)
+VIZ_COUNT,5,"Crown Spread, Tree Height, Spring Phenology, pH, Canopy Closure",4288.23,3442.79,19.72
+MATURE_ACORNS,2,"Spring Phenology, Tree Height",21.68,16.97,21.73
+IMMAT_ACORNS,7,"Spring Phenology, Potassium, Mid-April LAI, Crown Spread, Phosphorus, Tree Height, Stem Density",17.31,14.5,16.24
+ENLARGED_CUPS,5,"Clay, Sand, Mid-November LAI, Autumn Phenology, pH",11.78,9.76,17.14
+FLOWERS,6,"Autumn Phenology, Mid-November LAI, AUPPC, Stem Density, Mid-December LAI, Mid-April LAI",509.12,377.01,25.95
+GALLS,1,Tree Height,11.37,8.43,25.88

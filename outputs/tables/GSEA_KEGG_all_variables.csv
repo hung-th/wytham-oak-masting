@@ -1,0 +1,2 @@
+trait,ID,Description,setSize,enrichmentScore,NES,pvalue,p.adjust,qvalue,rank,leading_edge,core_enrichment
+MATURE_ACORNS,ath00966,Glucosinolate biosynthesis,6,0.9195437774382156,1.9580214964695755,7.840062437240108e-5,0.01019208116841214,0.01019208116841214,310,"tags=50%, list=5%, signal=48%",AT1G74100/AT5G65780/AT1G24100

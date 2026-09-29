@@ -1,0 +1,4 @@
+Distribution,AIC,KS P,Dispersion ratio,Dispersion P
+Gamma (log),396.5335,0.9887,0.7127,0.968
+Negative binomial (log),396.5424,0.9668,0.7434,0.994
+Poisson (log),1779.091,0,50.858,0

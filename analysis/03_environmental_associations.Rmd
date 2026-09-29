@@ -1,0 +1,612 @@
+---
+title: "3. Environmental and tree-level associates of acorn production"
+output:
+  github_document:
+    html_preview: false
+    toc: true
+---
+
+```{r knitr-setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      comment = "#>", results = "hold")
+```
+
+This notebook relates reproductive output to tree, soil, phenology and
+disease variables (Results: *Environmental and tree-level associates of
+acorn production*). The two-stage approach uses (1) random-forest variable
+selection with VSURF and (2) Gamma GLMs and GLMMs on the selected variables.
+
+| Output | Content |
+|---|---|
+| Table 1 | Response and explanatory variables: descriptive statistics |
+| Table 2 | GLM and GLMM results for VSURF-selected variables |
+| Figure 4 | GLM-fitted relationships for significant predictors |
+| Supplementary Figure 5 | Correlation matrix of candidate predictors |
+| Supplementary Table 6 | VSURF-selected variables and OOB errors |
+| Supplementary Figure 6 | Observed vs. random-forest fitted values |
+| Supplementary Figures 7–8 | Shapley values |
+| Supplementary Table 7 | Tukey comparisons of soil classes (enlarged cups) |
+| Supplementary Figure 9, Table 8 | DHARMa residual diagnostics |
+| Supplementary Figure 10, Table 9 | Error-distribution comparison for visual counts |
+| Supplementary Table 11, Figure 12 | Powdery mildew models |
+
+```{r setup}
+source("R/setup.R")
+suppressPackageStartupMessages({
+  library(VSURF); library(ranger); library(iml)
+  library(car); library(lme4); library(broom.mixed)
+  library(multcomp); library(emmeans); library(DHARMa)
+  library(ggcorrplot)
+})
+select <- dplyr::select   # MASS (loaded by car/VSURF dependencies) masks select()
+filter <- dplyr::filter
+```
+
+# Tree-level data
+
+Explanatory variables come from the tree attribute table (one row per tree).
+Responses are the tree-level means derived in notebook 1: the visual count is
+the 2020–2022 mean, and litter-trap variables are 2021–2023 means per 0.25 m²
+trap.
+
+```{r data}
+attrs <- read_excel(file.path(DIR_RAW, "trees", "tree_attributes.xlsx")) |>
+  transmute(Tree = as.character(TREE_ID),
+            ELEVATION, ASPECT, HEIGHT, DBH = as.numeric(DBH), CROWN_SPREAD, CROWN_CROSS,
+            CANOPY_CLOSURE, STEM_DENSITY = STALK_DENSITY,
+            PH = as.numeric(PH), P_MGL = as.numeric(P_MGL), K_MGL = as.numeric(K_MGL),
+            Mg_MGL = as.numeric(Mg_MGL), SAND = as.numeric(SAND), SILT = as.numeric(SILT),
+            CLAY = as.numeric(CLAY), SOIL_CLASS,
+            SPRING_PHENO, MIDAPRIL_LAI, AUTUMN_PHENO, MIDNOV_LAI, MIDDEC_LAI, AUPPC,
+            KING = suppressWarnings(as.numeric(KING))) |>
+  filter(Tree %in% STUDY_TREES)
+
+repro <- read_csv(file.path(DIR_DERIVED, "tree_reproduction.csv"),
+                  col_types = cols(Tree = "c", Class = "c"))
+
+RESPONSES <- c("VIZ_COUNT", LITTER_VARS)
+PREDICTORS <- c("ELEVATION", "ASPECT", "HEIGHT", "DBH", "CROWN_SPREAD", "CROWN_CROSS",
+                "CANOPY_CLOSURE", "STEM_DENSITY", "PH", "P_MGL", "K_MGL", "Mg_MGL",
+                "SAND", "SILT", "CLAY", "SPRING_PHENO", "MIDAPRIL_LAI",
+                "AUTUMN_PHENO", "MIDNOV_LAI", "MIDDEC_LAI", "AUPPC")
+
+soil_levels <- c("Clay", "Clay_Loam", "Sandy_Clay_Loam", "Sandy_Loam", "Loamy_Sand", "Sand")
+trees <- inner_join(repro, attrs, by = "Tree") |>
+  mutate(SOIL_CLASS = factor(SOIL_CLASS, levels = soil_levels),
+         Class = factor(Class, levels = c("High", "Medium", "Low")))
+
+stopifnot(nrow(trees) == 38, !anyNA(trees[, c(RESPONSES, PREDICTORS, "SOIL_CLASS")]))
+cat(nrow(trees), "trees;", length(PREDICTORS), "numeric candidate predictors\n")
+table(trees$SOIL_CLASS)
+```
+
+# Table 1: descriptive statistics
+
+Tree-level statistics (n = 38). Temperatures are summarised over all
+tree-days of logger data (daily means of hourly readings, see notebook 2).
+
+```{r table1}
+mc <- readRDS(file.path(DIR_RAW, "climate", "tree_microclimate_daily_2020_2023.rds")) |>
+  filter(as.character(Tree) %in% STUDY_TREES)
+
+describe <- function(x) tibble(Mean = mean(x), SD = sd(x), Max = max(x), Min = min(x))
+
+table1 <- bind_rows(
+  map_dfr(c(RESPONSES, PREDICTORS), ~ describe(trees[[.x]]) |> mutate(Symbol = .x)),
+  describe(mc$Maximum.Temperature) |> mutate(Symbol = "Maximum temperature"),
+  describe(mc$Minimum.Temperature) |> mutate(Symbol = "Minimum temperature"),
+  describe(mc$Temperature)         |> mutate(Symbol = "Mean temperature")
+) |>
+  mutate(Variable = coalesce(VAR_LABELS[Symbol], Symbol)) |>
+  relocate(Variable, Symbol) |>
+  mutate(across(Mean:Min, ~ round(.x, 2)))
+save_tab(table1, "Table1_descriptive_statistics")
+knitr::kable(table1)
+```
+
+# Supplementary Figure 5: correlations among candidate predictors
+
+```{r sf5, results="asis", fig.show="hide"}
+X <- trees |> select(all_of(PREDICTORS)) |> as.data.frame()
+colnames_lab <- VAR_LABELS[PREDICTORS]
+
+cor_mat <- cor(X); p_mat <- ggcorrplot::cor_pmat(X)
+dimnames(cor_mat) <- dimnames(p_mat) <- list(colnames_lab, colnames_lab)
+save_tab(as_tibble(round(cor_mat, 3), rownames = "Variable"), "SuppFig05_predictor_correlations")
+
+sf5 <- ggcorrplot(cor_mat, type = "lower", p.mat = p_mat, sig.level = 0.05,
+                  insig = "blank", lab = TRUE, lab_size = 2.5,
+                  colors = c("firebrick3", "white", "steelblue4"),
+                  outline.color = "grey85", tl.cex = 9)
+save_fig(sf5, "SuppFig05_predictor_correlations", width = 140, height = 130)
+```
+
+# Stage 1: VSURF variable selection
+
+VSURF (thresholding, interpretation and prediction steps; Genuer et al. 2015)
+was run on the 21 numeric candidate predictors with the `ranger` random-forest
+implementation. The variables retained at the interpretation step are used
+downstream.
+
+The fitted VSURF objects are provided in `cache/vsurf/` and are read here.
+Random-forest variable selection depends on the random number stream, which
+differs between versions of `ranger` and `VSURF`, so re-running the call below
+with other package versions can retain a slightly different set of variables.
+The call is evaluated only when a stored object is absent.
+
+```{r vsurf}
+VSURF_SEEDS <- c(VIZ_COUNT = 5, MATURE_ACORNS = 2, IMMAT_ACORNS = 36,
+                 ENLARGED_CUPS = 10, FLOWERS = 2, GALLS = 42)
+# column order of the predictor matrix used by VSURF (indices in the VSURF objects)
+VSURF_PREDICTORS <- c("ELEVATION", "ASPECT", "HEIGHT", "DBH", "CROWN_SPREAD", "CROWN_CROSS",
+                      "CANOPY_CLOSURE", "STEM_DENSITY", "SPRING_PHENO", "MIDAPRIL_LAI",
+                      "AUTUMN_PHENO", "MIDNOV_LAI", "MIDDEC_LAI", "AUPPC",
+                      "PH", "P_MGL", "K_MGL", "Mg_MGL", "SAND", "SILT", "CLAY")
+X_vsurf <- X[, VSURF_PREDICTORS]
+
+run_vsurf <- function(resp) {
+  cache <- file.path(DIR_CACHE, "vsurf", paste0("vsurf_", resp, ".rds"))
+  if (file.exists(cache)) return(readRDS(cache))
+  y <- trees[[resp]] + if (resp %in% c("ENLARGED_CUPS", "GALLS")) 1 else 0
+  set.seed(VSURF_SEEDS[[resp]])
+  v <- VSURF(X_vsurf, y, ntree = 1000, mtry = 9, nfor.thres = 10, nfor.interp = 5,
+             nfor.pred = 5, RFimplem = "ranger", parallel = FALSE)
+  saveRDS(v, cache)
+  v
+}
+vsurf_fits <- set_names(RESPONSES) |> map(run_vsurf)
+
+selected <- map(vsurf_fits, function(v) {
+  idx <- if (length(v$varselect.interp)) v$varselect.interp else v$varselect.thres
+  VSURF_PREDICTORS[idx]
+})
+str(selected)
+```
+
+## Supplementary Table 6
+
+```{r st6}
+st6 <- imap_dfr(vsurf_fits, function(v, resp) {
+  tibble(Response = resp,
+         `Number selected` = length(selected[[resp]]),
+         `Variables selected` = paste(VAR_LABELS[selected[[resp]]], collapse = ", "),
+         `OOB MSE at thresholding` = v$mean.perf,
+         `OOB MSE at interpretation` = min(v$err.interp))
+}) |>
+  mutate(`Error reduction (%)` = 100 * (1 - `OOB MSE at interpretation` / `OOB MSE at thresholding`),
+         across(where(is.double), ~ round(.x, 2)))
+save_tab(st6, "SuppTable06_VSURF_selection")
+knitr::kable(st6)
+```
+
+## Supplementary Figure 6: observed vs. random-forest fitted values
+
+Random forests (`ranger`, 500 trees) refitted on the VSURF-selected
+variables. R² is the squared correlation between observed and fitted values.
+
+```{r sf6, results="asis", fig.show="hide"}
+rf_fits <- imap(selected, function(vars, resp) {
+  ranger(x = X[, vars, drop = FALSE], y = trees[[resp]], num.trees = 500, seed = 42)
+})
+
+rf_df <- imap_dfr(rf_fits, function(rf, resp) {
+  tibble(Response = resp, Observed = trees[[resp]],
+         Fitted = predict(rf, X[, selected[[resp]], drop = FALSE])$predictions)
+})
+rf_r2 <- rf_df |> group_by(Response) |>
+  summarise(R2_fitted = cor(Observed, Fitted)^2)
+knitr::kable(rf_r2, digits = 2)
+
+sf6 <- rf_df |>
+  left_join(rf_r2, by = "Response") |>
+  mutate(Panel = factor(VAR_LABELS[Response], levels = VAR_LABELS[RESPONSES])) |>
+  ggplot(aes(Fitted, Observed)) +
+  geom_abline(linetype = "dashed", colour = "grey50") +
+  geom_point(size = 1.5, alpha = 0.8) +
+  geom_text(data = \(d) distinct(d, Panel, R2_fitted),
+            aes(label = sprintf("R² = %.2f", R2_fitted)),
+            x = -Inf, y = Inf, hjust = -0.15, vjust = 1.5, size = 3) +
+  facet_wrap(~ Panel, scales = "free", ncol = 3) +
+  labs(x = "Random-forest fitted value", y = "Observed mean per tree per annum")
+save_fig(sf6, "SuppFig06_observed_vs_fitted", width = 200, height = 100)
+```
+
+## Supplementary Figures 7–8: Shapley values
+
+Shapley values (`iml`) quantify the contribution of each selected variable's
+value to the random-forest prediction. For each model they are computed for 50
+trees drawn at random (with replacement) from the 38; for single-variable
+models the Shapley value is the prediction minus the mean prediction. Values
+are stored in `cache/shapley/` and recomputed only when absent.
+
+```{r shapley}
+shapley_for <- function(resp, n = 50, seed = 42) {
+  vars <- selected[[resp]]
+  Xs <- X[, vars, drop = FALSE]
+  y  <- trees[[resp]] + if (resp %in% PLUS1_RF) 1 else 0
+  rf <- ranger(x = Xs, y = y, num.trees = 500, seed = seed)
+  if (length(vars) < 2) {   # single predictor: prediction minus mean prediction
+    p <- predict(rf, Xs)$predictions
+    return(tibble(feature.value = paste0(vars, "=", Xs[[1]]), phi = p - mean(p)))
+  }
+  pred <- Predictor$new(rf, data = Xs, y = y,
+                        predict.function = \(model, newdata) predict(model, newdata)$predictions)
+  set.seed(seed)
+  map_dfr(seq_len(n), function(i) {
+    Shapley$new(pred, x.interest = Xs[sample(nrow(Xs), 1), , drop = FALSE])$results
+  }) |> filter(phi != 0)
+}
+PLUS1_RF <- c("MATURE_ACORNS", "IMMAT_ACORNS", "ENLARGED_CUPS", "GALLS")
+
+shap <- map_dfr(RESPONSES, function(resp) {
+  cache <- file.path(DIR_CACHE, "shapley", paste0("shapley_", resp, ".rds"))
+  if (!file.exists(cache)) saveRDS(shapley_for(resp), cache)
+  readRDS(cache) |>
+    transmute(Response = resp,
+              feature = sub("=.*", "", feature.value),
+              value = as.numeric(sub(".*=", "", feature.value)), phi) |>
+    mutate(feature = sub("^STALK_DENSITY$", "STEM_DENSITY", feature))
+})
+```
+
+```{r sf7-sf8, results="asis", fig.show="hide"}
+SHAP_TITLES <- c(VIZ_COUNT = "Mature acorns\n(visual count)", MATURE_ACORNS = "Mature acorns\n(litter trap)",
+                 IMMAT_ACORNS = "Immature acorns", ENLARGED_CUPS = "Enlarged cups",
+                 FLOWERS = "Flowers", GALLS = "Galls")
+
+shapley_panel <- function(resp) {
+  shap |>
+    filter(Response == resp) |>
+    mutate(feature = factor(VAR_LABELS[feature], levels = VAR_LABELS[selected[[resp]]])) |>
+    ggplot(aes(phi, value)) +
+    geom_vline(xintercept = 0, colour = "grey75") +
+    geom_smooth(method = "loess", formula = y ~ x, se = FALSE, colour = "black",
+                linewidth = 0.8, span = 0.75) +
+    facet_wrap(~ feature, scales = "free_y", ncol = 1) +
+    labs(title = SHAP_TITLES[[resp]], x = "Shapley value (effect on model prediction)",
+         y = "Variable value")
+}
+
+sf7 <- wrap_plots(map(c("VIZ_COUNT", "IMMAT_ACORNS", "ENLARGED_CUPS", "FLOWERS"),
+                      shapley_panel), nrow = 1) +
+  plot_layout(axis_titles = "collect") & theme(plot.title = element_text(size = 10))
+save_fig(sf7, "SuppFig07_shapley_visual_immature_cups_flowers", width = 180, height = 300)
+
+sf8 <- wrap_plots(map(c("MATURE_ACORNS", "GALLS"), shapley_panel), nrow = 1) +
+  plot_layout(axis_titles = "collect") & theme(plot.title = element_text(size = 10))
+save_fig(sf8, "SuppFig08_shapley_mature_galls", width = 180, height = 110)
+```
+
+# Stage 2: generalised linear (mixed) models
+
+## Model specification
+
+For each response, the GLM contains the VSURF-selected variables with two
+adjustments: the highly collinear soil texture fractions (Clay, Sand) are
+represented jointly by the categorical Soil Class, and Mid-December LAI is
+removed because of its high collinearity with Autumn Phenology. Responses
+containing zeros are modelled as count + 1. All models use a Gamma
+distribution with log link.
+
+```{r glm-spec}
+PLUS1 <- c("MATURE_ACORNS", "IMMAT_ACORNS", "ENLARGED_CUPS", "GALLS")
+resp_term <- function(resp) if (resp %in% PLUS1) paste0("I(", resp, " + 1)") else resp
+
+glm_vars <- imap(selected, function(vars, resp) {
+  dropped <- character()
+  if (any(vars %in% c("SAND", "SILT", "CLAY"))) {
+    dropped <- intersect(vars, c("SAND", "SILT", "CLAY"))
+    vars <- c(setdiff(vars, dropped), "SOIL_CLASS")
+  }
+  if (all(c("MIDDEC_LAI", "AUTUMN_PHENO") %in% vars)) {
+    dropped <- c(dropped, "MIDDEC_LAI")
+    vars <- setdiff(vars, "MIDDEC_LAI")
+  }
+  list(vars = vars, dropped = dropped)
+})
+tibble(Response = names(glm_vars),
+       Predictors = map_chr(glm_vars, ~ paste(.x$vars, collapse = ", ")),
+       Removed = map_chr(glm_vars, ~ paste(.x$dropped, collapse = ", "))) |>
+  knitr::kable()
+
+glms <- imap(glm_vars, ~ glm(reformulate(.x$vars, resp_term(.y)),
+                             data = trees, family = Gamma("log")))
+```
+
+## GLMMs
+
+Year-level panel: annual visual counts (2020–2023) and annual litter-trap
+means (2021–2023) per tree, with the tree-level predictors of the GLM and
+Year as a random intercept. All GLMM responses are modelled as count + 1.
+
+```{r glmm}
+panel <- bind_rows(
+  load_visual_counts() |> transmute(Tree, Year, Response = "VIZ_COUNT", y = Count),
+  load_litter_traps() |> pivot_longer(all_of(LITTER_VARS), names_to = "Response", values_to = "y")
+) |>
+  left_join(select(trees, Tree, all_of(PREDICTORS), SOIL_CLASS), by = "Tree") |>
+  mutate(y1 = y + 1, Year = factor(Year))
+
+glmms <- imap(glm_vars, function(g, resp) {
+  d <- filter(panel, Response == resp)
+  glmer(reformulate(c(g$vars, "(1 | Year)"), "y1"), data = d, family = Gamma("log"),
+        control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5)))
+})
+map_chr(glmms, ~ if (isSingular(.x)) "singular" else "ok")
+```
+
+## Table 2
+
+GLM: Type II likelihood-ratio χ² (`car::Anova`) and VIF. GLMM: fixed-effect
+estimate β (log scale), Wald z and P; for Soil Class, the Type II Wald χ².
+
+```{r table2}
+glm_part <- imap_dfr(glms, function(m, resp) {
+  a <- Anova(m, type = "II")
+  v <- if (length(glm_vars[[resp]]$vars) > 1) {
+    vv <- vif(m); if (is.matrix(vv)) vv[, "GVIF^(1/(2*Df))"]^2 else vv
+  } else setNames(NA_real_, glm_vars[[resp]]$vars)
+  tibble(Response = resp, Variable = rownames(a), VIF = unname(v[rownames(a)]),
+         df = a$Df, Chisq = a$`LR Chisq`, P_GLM = a$`Pr(>Chisq)`)
+})
+
+glmm_part <- imap_dfr(glmms, function(m, resp) {
+  fx <- tidy(m, effects = "fixed") |> filter(term != "(Intercept)", !grepl("SOIL_CLASS", term)) |>
+    transmute(Variable = term, beta = estimate, z = statistic, P_GLMM = p.value)
+  if ("SOIL_CLASS" %in% glm_vars[[resp]]$vars) {
+    a <- Anova(m, type = "II")
+    fx <- bind_rows(fx, tibble(Variable = "SOIL_CLASS", beta = NA, z = NA,
+                               Wald_chisq = a["SOIL_CLASS", "Chisq"],
+                               P_GLMM = a["SOIL_CLASS", "Pr(>Chisq)"]))
+  }
+  mutate(fx, Response = resp)
+})
+
+table2 <- left_join(glm_part, glmm_part, by = c("Response", "Variable")) |>
+  mutate(Variable = VAR_LABELS[Variable],
+         Response = VAR_LABELS[Response]) |>
+  select(Response, Variable, VIF, df, Chisq, P_GLM, beta, z, any_of("Wald_chisq"), P_GLMM)
+
+table2_out <- table2 |>
+  mutate(across(c(VIF, Chisq, z, any_of("Wald_chisq")), ~ round(.x, 3)),
+         beta = round(beta, 4),
+         P_GLM = paste0(fmt_p(P_GLM), sig_stars(P_GLM)),
+         P_GLMM = paste0(fmt_p(P_GLMM), sig_stars(P_GLMM)))
+save_tab(table2_out, "Table2_GLM_GLMM")
+knitr::kable(table2_out)
+```
+
+## Supplementary Table 7: soil-class contrasts (enlarged cups)
+
+```{r st7}
+st7 <- NULL
+if ("SOIL_CLASS" %in% glm_vars$ENLARGED_CUPS$vars) {
+  set.seed(1)   # adjusted P-values use randomised multivariate-t integration
+  tk <- summary(glht(glms$ENLARGED_CUPS, linfct = mcp(SOIL_CLASS = "Tukey")))
+  st7 <- tibble(Comparison = gsub("_", " ", names(tk$test$coefficients)),
+                Estimate = tk$test$coefficients, SE = tk$test$sigma,
+                z = tk$test$tstat, P = tk$test$pvalues)
+  save_tab(st7 |> mutate(across(Estimate:z, ~ round(.x, 4)), P = fmt_p(P)),
+           "SuppTable07_soil_class_Tukey")
+  knitr::kable(st7, digits = 4)
+}
+```
+
+## Figure 4: significant GLM relationships
+
+Lines are predictions of the fitted Gamma GLM (log link) for the focal
+predictor, with other continuous predictors held at their means and averaged
+over soil classes (`emmeans`), with 95% confidence bands. Responses fitted as
+count + 1 are back-transformed by subtracting 1. The box plot shows enlarged
+cups by soil class with Tukey compact letters and sample sizes.
+
+```{r fig4, results="asis", fig.show="hide"}
+AXIS_LABELS <- c(CANOPY_CLOSURE = "Canopy Closure\n(1 = open, 10 = closed)",
+                 SPRING_PHENO   = "Spring Phenology\n(% peak LAI)",
+                 MIDNOV_LAI     = "Mid-November LAI\n(% peak LAI)",
+                 AUTUMN_PHENO   = "Autumn Phenology (% peak LAI)",
+                 MIDAPRIL_LAI   = "Mid-April LAI (% peak LAI)",
+                 CROWN_SPREAD   = "Crown Spread (m)", HEIGHT = "Tree Height (m)",
+                 PH = "pH", P_MGL = "Phosphorus (mg/l)", K_MGL = "Potassium (mg/l)",
+                 STEM_DENSITY = "Stem Density (1 = open, 10 = closed)",
+                 AUPPC = "AUPPC (cumulative % LAI)")
+Y_LABELS <- c(VIZ_COUNT = "Visual acorn count\n(per tree per annum)",
+              MATURE_ACORNS = "Mature acorns\n(per 0.25 m² per annum)",
+              IMMAT_ACORNS = "Immature acorns\n(per 0.25 m² per annum)",
+              ENLARGED_CUPS = "Enlarged cups\n(per 0.25 m² per annum)",
+              FLOWERS = "Flowers\n(per 0.25 m² per annum)",
+              GALLS = "Galls\n(per 0.25 m² per annum)")
+
+sig_terms <- glm_part |> filter(P_GLM < 0.05, Variable != "SOIL_CLASS")
+
+effect_panel <- function(resp, var) {
+  grid <- seq(min(trees[[var]]), max(trees[[var]]), length.out = 100)
+  em <- emmeans(glms[[resp]], as.formula(paste("~", var)),
+                at = setNames(list(grid), var), type = "response") |>
+    as.data.frame() |> as_tibble()
+  names(em)[names(em) %in% c("response", "emmean", "rate")] <- "fit"
+  names(em)[names(em) %in% c("asymp.LCL", "lower.CL")] <- "lwr"
+  names(em)[names(em) %in% c("asymp.UCL", "upper.CL")] <- "upr"
+  off <- if (resp %in% PLUS1) 1 else 0
+  em <- em |> mutate(across(c(fit, lwr, upr), ~ pmax(.x - off, 0)))
+  ggplot() +
+    geom_ribbon(data = em, aes(.data[[var]], ymin = lwr, ymax = upr), fill = "grey85") +
+    geom_line(data = em, aes(.data[[var]], fit), linewidth = 0.7) +
+    geom_point(data = trees, aes(.data[[var]], .data[[resp]]), colour = "grey35",
+               size = 1.6, alpha = 0.8) +
+    coord_cartesian(ylim = c(0, max(trees[[resp]]) * 1.08)) +
+    labs(x = AXIS_LABELS[[var]], y = Y_LABELS[[resp]])
+}
+fig4_panels <- map2(sig_terms$Response, sig_terms$Variable, effect_panel)
+
+if (!is.null(st7)) {
+  set.seed(1)
+  letters_cld <- cld(glht(glms$ENLARGED_CUPS, linfct = mcp(SOIL_CLASS = "Tukey")))$mcletters$Letters
+  soil_lab <- distinct(trees, SOIL_CLASS) |>
+    mutate(letter = letters_cld[as.character(SOIL_CLASS)],
+           tick = gsub("_", " ", SOIL_CLASS))
+  fig4_panels <- c(fig4_panels, list(
+    ggplot(trees, aes(SOIL_CLASS, ENLARGED_CUPS)) +
+      geom_boxplot(fill = "grey90", colour = "grey30", outlier.shape = NA, width = 0.6) +
+      geom_jitter(width = 0.12, height = 0, size = 1.2, colour = "grey35") +
+      geom_text(data = soil_lab, aes(SOIL_CLASS, max(trees$ENLARGED_CUPS) * 1.1, label = letter),
+                size = 3.2) +
+      scale_x_discrete(labels = setNames(soil_lab$tick, soil_lab$SOIL_CLASS)) +
+      scale_y_continuous(expand = expansion(mult = c(0.03, 0.12))) +
+      labs(x = "Soil class", y = Y_LABELS[["ENLARGED_CUPS"]]) +
+      theme(axis.text.x = element_text(angle = 30, hjust = 1))))
+}
+
+fig4 <- wrap_plots(fig4_panels, ncol = 2) + plot_annotation(tag_levels = "a") &
+  theme(plot.tag = element_text(face = "bold", size = 14))
+save_fig(fig4, "Figure4", width = 120, height = 120)
+```
+
+## Residual diagnostics (Supplementary Figures 9–10, Tables 8–9)
+
+```{r dharma, results="asis"}
+dharma_test <- function(m, label) {
+  set.seed(42)
+  sim <- simulateResiduals(m, n = 1000)
+  png(file.path(DIR_FIG, paste0("SuppFig09_DHARMa_", label, ".png")),
+      width = 170, height = 85, units = "mm", res = 300)
+  plot(sim, title = paste("DHARMa residuals:", label)); dev.off()
+  tibble(Model = label,
+         `KS P` = testUniformity(sim, plot = FALSE)$p.value,
+         `Dispersion ratio` = unname(testDispersion(sim, plot = FALSE)$statistic),
+         `Dispersion P` = testDispersion(sim, plot = FALSE)$p.value,
+         `Outlier P` = testOutliers(sim, plot = FALSE)$p.value)
+}
+st8 <- imap_dfr(glms, dharma_test)
+save_tab(st8 |> mutate(across(where(is.double), ~ round(.x, 4))), "SuppTable08_DHARMa_tests")
+for (r in names(glms)) show_fig(paste0("SuppFig09_DHARMa_", r))
+knitr::kable(st8, digits = 4)
+```
+
+```{r distributions, results="asis"}
+f_viz <- formula(glms$VIZ_COUNT)
+viz_models <- list(`Gamma (log)` = glms$VIZ_COUNT,
+                   `Negative binomial (log)` = MASS::glm.nb(f_viz, data = mutate(trees, VIZ_COUNT = round(VIZ_COUNT))),
+                   `Poisson (log)` = glm(f_viz, data = mutate(trees, VIZ_COUNT = round(VIZ_COUNT)),
+                                         family = poisson("log")))
+st9 <- imap_dfr(viz_models, function(m, lab) {
+  set.seed(42)
+  sim <- simulateResiduals(m, n = 1000)
+  slug <- gsub("[^A-Za-z]", "", lab)
+  png(file.path(DIR_FIG, paste0("SuppFig10_DHARMa_VIZ_COUNT_", slug, ".png")),
+      width = 170, height = 85, units = "mm", res = 300)
+  plot(sim, title = paste("Visual acorn count:", lab)); dev.off()
+  show_fig(paste0("SuppFig10_DHARMa_VIZ_COUNT_", slug))
+  tibble(Distribution = lab, AIC = AIC(m),
+         `KS P` = testUniformity(sim, plot = FALSE)$p.value,
+         `Dispersion ratio` = unname(testDispersion(sim, plot = FALSE)$statistic),
+         `Dispersion P` = testDispersion(sim, plot = FALSE)$p.value)
+})
+save_tab(st9 |> mutate(across(where(is.double), ~ round(.x, 4))), "SuppTable09_distribution_comparison")
+knitr::kable(st9, digits = 4)
+```
+
+The Poisson and negative-binomial models use visual counts rounded to
+integers (the response is a three-year mean).
+
+# Producer class and relatedness
+
+Summed pairwise KING kinship per tree (tree attribute table) compared among
+producer classes. Tree 33 failed sequencing, and Tree 25 is excluded because
+its sample showed elevated kinship with all other samples, consistent with
+contamination.
+
+```{r kinship}
+kin <- trees |> filter(!is.na(KING), Tree != "25")
+kin_aov <- summary(aov(KING ~ Class, data = kin))[[1]]
+kin_summary <- kin |> group_by(Class) |>
+  summarise(n = n(), mean = mean(KING), se = sd(KING) / sqrt(n()), .groups = "drop")
+kin_aov
+knitr::kable(kin_summary, digits = 3)
+```
+
+# Powdery mildew (Supplementary Table 11, Figure 12)
+
+Dry weight of prematurely abscised, mildew-infected leaves per 0.25 m² trap
+in August 2021 related to 2021 litter-trap counts (Gamma GLMs, log link,
+count + 1). No mature acorns were produced in 2021.
+
+```{r mildew}
+pm <- read_excel(file.path(DIR_RAW, "reproduction", "powdery_mildew_2021.xlsx")) |>
+  transmute(Tree = as.character(TREE_ID), PM_leaves) |>
+  filter(Tree %in% STUDY_TREES) |>
+  inner_join(load_litter_traps() |> filter(Year == 2021), by = "Tree")
+
+pm_models <- map(set_names(c("IMMAT_ACORNS", "ENLARGED_CUPS", "FLOWERS", "GALLS")),
+                 ~ glm(reformulate("PM_leaves", paste0("I(", .x, " + 1)")),
+                       data = pm, family = Gamma("log")))
+st11 <- imap_dfr(pm_models, ~ tidy(.x) |> filter(term == "PM_leaves") |>
+                   transmute(Variable = VAR_LABELS[.y], Estimate = estimate,
+                             SE = std.error, t = statistic, P = p.value))
+save_tab(st11 |> mutate(across(Estimate:t, ~ signif(.x, 4)), P = fmt_p(P)),
+         "SuppTable11_powdery_mildew")
+cat("n trees:", nrow(pm), "\n")
+knitr::kable(st11, digits = 4)
+```
+
+```{r sf12, results="asis", fig.show="hide"}
+g_pm <- pm_models$GALLS
+grid <- tibble(PM_leaves = seq(min(pm$PM_leaves), max(pm$PM_leaves), length.out = 100))
+pr <- predict(g_pm, grid, type = "link", se.fit = TRUE)
+grid <- grid |> mutate(fit = exp(pr$fit) - 1,
+                       lwr = pmax(exp(pr$fit - 1.96 * pr$se.fit) - 1, 0),
+                       upr = exp(pr$fit + 1.96 * pr$se.fit) - 1)
+dev_r2 <- 1 - g_pm$deviance / g_pm$null.deviance
+
+sf12 <- ggplot(pm, aes(PM_leaves, GALLS)) +
+  geom_ribbon(data = grid, aes(PM_leaves, ymin = lwr, ymax = upr), inherit.aes = FALSE,
+              fill = "grey85") +
+  geom_line(data = grid, aes(PM_leaves, fit), linewidth = 0.7) +
+  geom_point(size = 1.8, colour = "grey30") +
+  annotate("text", x = Inf, y = Inf, hjust = 1.05, vjust = 1.3, size = 3.2,
+           label = sprintf("Deviance R² = %.2f", dev_r2)) +
+  labs(x = "Dry weight of abscised leaves\n(g per 0.25 m² trap)",
+       y = "Galls per 0.25 m² trap (2021)")
+save_fig(sf12, "SuppFig12_galls_vs_powdery_mildew", width = 90, height = 90)
+```
+
+# Key results
+
+```{r key-results}
+fmt_row <- function(resp, var) {
+  r <- table2 |> filter(Response == VAR_LABELS[[resp]], Variable == VAR_LABELS[[var]])
+  if (nrow(r) == 0) return("not in model")
+  sprintf("GLM chi2 = %.2f, P = %.4f; GLMM beta = %.3f, z = %.2f, P = %.4f",
+          r$Chisq, r$P_GLM, r$beta, r$z, r$P_GLMM)
+}
+key03 <- tribble(
+  ~Statistic, ~Value,
+  "VSURF variables (union over responses)", as.character(length(unique(unlist(selected)))),
+  "VSURF variables per response", paste(lengths(selected), collapse = " / "),
+  "OOB error reduction range (%)", sprintf("%.1f–%.1f", min(st6$`Error reduction (%)`), max(st6$`Error reduction (%)`)),
+  "RF R² fitted (range)", sprintf("%.2f–%.2f", min(rf_r2$R2_fitted), max(rf_r2$R2_fitted)),
+  "Visual count ~ Canopy Closure", fmt_row("VIZ_COUNT", "CANOPY_CLOSURE"),
+  "Visual count ~ Crown Spread", fmt_row("VIZ_COUNT", "CROWN_SPREAD"),
+  "Visual count ~ Spring Phenology", fmt_row("VIZ_COUNT", "SPRING_PHENO"),
+  "Trap mature acorns ~ Spring Phenology", fmt_row("MATURE_ACORNS", "SPRING_PHENO"),
+  "Enlarged cups ~ Mid-November LAI", fmt_row("ENLARGED_CUPS", "MIDNOV_LAI"),
+  "Enlarged cups ~ Soil Class (GLM chi2, df, P)", with(filter(glm_part, Response == "ENLARGED_CUPS", Variable == "SOIL_CLASS"),
+      if (length(Chisq)) sprintf("%.2f, %d, %.4f", Chisq, df, P_GLM) else "not in model"),
+  "Galls ~ Tree Height", fmt_row("GALLS", "HEIGHT"),
+  "Smallest GLM P, flowers", sprintf("%.4f", min(filter(glm_part, Response == "FLOWERS")$P_GLM)),
+  "Smallest GLM P, immature acorns", sprintf("%.4f", min(filter(glm_part, Response == "IMMAT_ACORNS")$P_GLM)),
+  "DHARMa KS P (min)", sprintf("%.3f", min(st8$`KS P`)),
+  "Kinship ~ producer class", sprintf("F(%d,%d) = %.3f, P = %.2f", kin_aov$Df[1], kin_aov$Df[2],
+                                       kin_aov$`F value`[1], kin_aov$`Pr(>F)`[1]),
+  "Kinship high / medium / low (mean ± SE)", paste(sprintf("%.2f ± %.2f", kin_summary$mean, kin_summary$se), collapse = " / "),
+  "Galls ~ powdery mildew (estimate, P)", sprintf("%.4f, %.4f", st11$Estimate[4], st11$P[4]),
+  "Flowers ~ powdery mildew (estimate, P)", sprintf("%.4f, %.4f", st11$Estimate[3], st11$P[3])
+)
+save_tab(key03, "key_results_03_environmental_associations")
+knitr::kable(key03)
+```
+
+```{r session}
+sessionInfo()
+```

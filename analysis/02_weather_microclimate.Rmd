@@ -1,0 +1,258 @@
+---
+title: "2. Inter-annual variability in weather and tree microclimate"
+output:
+  github_document:
+    html_preview: false
+    toc: true
+---
+
+```{r knitr-setup, include=FALSE}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      comment = "#>", results = "hold")
+```
+
+This notebook characterises weather and tree-level microclimate over the
+study period (Results: *Inter-annual variability in weather*).
+
+| Output | Content |
+|---|---|
+| Supplementary Figure 1 | Daily mean temperature, tree-mounted loggers |
+| Supplementary Figure 2 | Daily precipitation, ECN Wytham station |
+| Supplementary Figure 3 | Deviation of each tree's temperature from the population mean |
+| Supplementary Figure 4 | Population-mean visual acorn count vs. seasonal climate |
+| Supplementary Table 10 | ANOVAs of microclimate by producer class, phenological period and year |
+
+```{r setup}
+source("R/setup.R")
+library(lubridate)
+```
+
+# Data
+
+Tinytag loggers on the northern side of each trunk (~1.3 m) recorded hourly
+temperature from 6 October 2020. The hourly readings (temperature, and the
+maximum and minimum within each hour) were averaged to daily values, so
+`Tmax` and `Tmin` below are daily means of hourly maxima and minima. Daily
+rainfall is from the UK Environmental Change Network (ECN) station at Wytham.
+
+```{r load}
+mc <- readRDS(file.path(DIR_RAW, "climate", "tree_microclimate_daily_2020_2023.rds")) |>
+  transmute(Tree = as.character(Tree), Date = as.Date(Date),
+            Tmean = Temperature, Tmax = Maximum.Temperature, Tmin = Minimum.Temperature) |>
+  filter(Tree %in% STUDY_TREES) |>
+  mutate(Year = year(Date), Month = month(Date), Day = day(Date))
+
+precip <- read_csv(file.path(DIR_RAW, "climate", "wytham_daily_precipitation_2020_2023.csv"),
+                   skip = 1, col_names = c("Date", "Rain_mm"), show_col_types = FALSE) |>
+  mutate(Date = dmy(Date), Rain_mm = as.numeric(Rain_mm),
+         Year = year(Date), Month = month(Date), Day = day(Date)) |>
+  filter(Year %in% STUDY_YEARS)
+
+classes <- read_csv(file.path(DIR_DERIVED, "producer_classes.csv"), col_types = "cidc") |>
+  mutate(Class = factor(Class, levels = c("High", "Medium", "Low")))
+
+cat("Logger records:", format(min(mc$Date)), "to", format(max(mc$Date)), "|",
+    n_distinct(mc$Tree), "trees with loggers; no logger for tree(s):",
+    paste(setdiff(STUDY_TREES, mc$Tree), collapse = ", "), "\n")
+cat("Rainfall records:", format(min(precip$Date)), "to", format(max(precip$Date)), "\n")
+```
+
+# Supplementary Figures 1 and 2: daily temperature and rainfall
+
+```{r sf1-sf2, results="asis", fig.show="hide"}
+all_days <- tibble(Date = seq(as.Date("2020-01-01"), as.Date("2023-12-31"), by = "day")) |>
+  mutate(Year = year(Date), Month = month(Date), Day = day(Date))
+
+daily_temp <- mc |> group_by(Date) |> summarise(Tmean = mean(Tmean), .groups = "drop")
+
+calendar_heatmap <- function(d, fill, limits, palette, legend_name, direction = 1) {
+  ggplot(d, aes(Day, Month, fill = .data[[fill]])) +
+    geom_tile() +
+    facet_wrap(~ Year, ncol = 2) +
+    scale_fill_viridis_c(option = palette, direction = direction, limits = limits,
+                         na.value = "grey90", name = legend_name) +
+    scale_x_continuous(breaks = c(1, 5, 10, 15, 20, 25, 30), expand = c(0, 0)) +
+    scale_y_reverse(breaks = 1:12, labels = month.abb, expand = c(0, 0)) +
+    labs(x = "Day of month", y = NULL) +
+    theme(axis.line = element_blank(), strip.text = element_text(face = "bold"))
+}
+
+sf1 <- calendar_heatmap(left_join(all_days, daily_temp, by = "Date"), "Tmean",
+                        range(daily_temp$Tmean), "H", "°C")
+save_fig(sf1, "SuppFig01_temperature_heatmap", width = 170, height = 140)
+
+sf2 <- calendar_heatmap(left_join(all_days, select(precip, Date, Rain_mm), by = "Date"),
+                        "Rain_mm", c(0, max(precip$Rain_mm, na.rm = TRUE)), "D", "mm",
+                        direction = -1)
+save_fig(sf2, "SuppFig02_precipitation_heatmap", width = 170, height = 140)
+
+cat("Range of daily mean temperature (population mean): ",
+    sprintf("%.1f to %.1f °C", min(daily_temp$Tmean), max(daily_temp$Tmean)), "\n")
+```
+
+# Supplementary Figure 3: individual-tree microclimate
+
+Each tree's mean daily Tmax, Tmean and Tmin over all logger days, expressed
+as the deviation from the mean of all trees. Trees are ordered by total
+visual acorn count (2020–2023).
+
+```{r sf3, results="asis", fig.show="hide"}
+tree_temp <- mc |>
+  group_by(Tree) |>
+  summarise(across(c(Tmax, Tmean, Tmin), mean), .groups = "drop") |>
+  mutate(across(c(Tmax, Tmean, Tmin), ~ .x - mean(.x), .names = "dev_{.col}"))
+
+knitr::kable(tree_temp |> arrange(dev_Tmean) |> slice(c(1:3, (n() - 2):n())),
+             digits = 2, caption = "Coolest and warmest trees")
+
+sf3 <- tree_temp |>
+  pivot_longer(starts_with("dev_"), names_to = "Metric", values_to = "Deviation") |>
+  mutate(Metric = factor(Metric, levels = c("dev_Tmax", "dev_Tmean", "dev_Tmin"),
+                         labels = c("Maximum temperature", "Mean temperature",
+                                    "Minimum temperature")),
+         Tree = factor(Tree, levels = classes$Tree)) |>
+  ggplot(aes(Tree, Deviation, fill = Deviation)) +
+  geom_col() +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  scale_fill_gradient2(low = "steelblue", mid = "white", high = "firebrick",
+                       name = "Deviation\n(°C)") +
+  scale_x_discrete(drop = FALSE) +
+  facet_wrap(~ Metric, ncol = 1) +
+  labs(x = "Tree (ordered by total acorn production, high to low)",
+       y = "Deviation from population mean (°C)") +
+  theme(axis.text.x = element_text(size = 7))
+save_fig(sf3, "SuppFig03_tree_temperature_deviation", width = 170, height = 110)
+```
+
+# Supplementary Figure 4: population-mean acorn count vs. seasonal climate
+
+Spring = March–May, summer = June–August. Logger temperatures are available
+from spring 2021 only (n = 3 years); rainfall covers all four years. With
+n = 3–4, these relationships are descriptive only.
+
+```{r sf4, results="asis", fig.show="hide"}
+season_of <- function(m) case_when(m %in% 3:5 ~ "Spring", m %in% 6:8 ~ "Summer")
+
+seasonal <- full_join(
+  mc |> mutate(Season = season_of(Month)) |> filter(!is.na(Season)) |>
+    group_by(Year, Season) |> summarise(Temp = mean(Tmean), .groups = "drop"),
+  precip |> mutate(Season = season_of(Month)) |> filter(!is.na(Season)) |>
+    group_by(Year, Season) |> summarise(Rain = sum(Rain_mm, na.rm = TRUE), .groups = "drop"),
+  by = c("Year", "Season")) |>
+  pivot_wider(names_from = Season, values_from = c(Temp, Rain))
+
+annual <- load_visual_counts() |>
+  group_by(Year) |> summarise(Mean_count = mean(Count), .groups = "drop") |>
+  left_join(seasonal, by = "Year")
+knitr::kable(annual, digits = 2)
+
+clim_vars <- c(Temp_Spring = "Spring mean temperature (°C)",
+               Rain_Spring = "Spring precipitation (mm)",
+               Temp_Summer = "Summer mean temperature (°C)",
+               Rain_Summer = "Summer precipitation (mm)")
+
+clim_cor <- imap_dfr(clim_vars, function(lab, v) {
+  d <- annual |> filter(!is.na(.data[[v]]))
+  ct <- cor.test(d[[v]], d$Mean_count)
+  tibble(Climate = lab, n = nrow(d), r = unname(ct$estimate), P = ct$p.value)
+})
+knitr::kable(clim_cor, digits = 3)
+
+sf4 <- imap(clim_vars, function(lab, v) {
+  st <- clim_cor |> filter(Climate == lab)
+  ggplot(filter(annual, !is.na(.data[[v]])), aes(.data[[v]], Mean_count, label = Year)) +
+    geom_smooth(method = "lm", formula = y ~ x, colour = "black", fill = "grey80",
+                linewidth = 0.6) +
+    geom_point(size = 2) +
+    geom_text(vjust = -0.8, size = 3) +
+    annotate("text", x = -Inf, y = Inf, hjust = -0.1, vjust = 1.3, size = 3,
+             label = sprintf("r = %.2f, P = %.2f", st$r, st$P)) +
+    scale_x_continuous(expand = expansion(mult = 0.15)) +
+    labs(x = lab, y = "Mean visual acorn count")
+}) |> wrap_plots(ncol = 2) + plot_layout(axis_titles = "collect")
+save_fig(sf4, "SuppFig04_acorns_vs_seasonal_climate", width = 140, height = 90)
+```
+
+# Supplementary Table 10: microclimate by producer class
+
+Daily temperatures were assigned to three phenological periods: budburst
+(1 March–15 May), acorn development (16 May–15 September) and post-acorn-drop
+leaf senescence (6 October–31 December). Accumulated temperature is the sum
+of daily mean temperatures per tree, year and period. Each temperature
+measure was modelled with `aov` as producer class × period + producer class ×
+year (Year as a factor; sequential sums of squares).
+
+```{r st10}
+period_of <- function(d) {
+  md <- month(d) * 100 + day(d)
+  case_when(md >= 301  & md <= 515  ~ "Budburst",
+            md >= 516  & md <= 915  ~ "Acorn development",
+            md >= 1006 & md <= 1231 ~ "Post-acorn-drop senescence")
+}
+
+mc_period <- mc |>
+  mutate(Period = factor(period_of(Date),
+                         levels = c("Budburst", "Acorn development",
+                                    "Post-acorn-drop senescence"))) |>
+  filter(!is.na(Period)) |>
+  left_join(select(classes, Tree, Class), by = "Tree") |>
+  mutate(Year = factor(Year))
+
+knitr::kable(count(mc_period, Year, Period), caption = "Tree-days per year and period")
+
+accum <- mc_period |>
+  group_by(Tree, Class, Year, Period) |>
+  summarise(Taccum = sum(Tmean), .groups = "drop")
+
+term_labels <- c("Class" = "Producer", "Period" = "Period", "Year" = "Year",
+                 "Class:Period" = "Producer × Period", "Class:Year" = "Producer × Year",
+                 "Residuals" = "Residuals")
+
+aov_table <- function(resp, data, label) {
+  f <- as.formula(paste(resp, "~ Class * Period + Class * Year"))
+  a <- summary(aov(f, data = data))[[1]]
+  tibble(Response = label, Term = term_labels[trimws(rownames(a))],
+         df = a$Df, `Sum Sq` = a$`Sum Sq`, `Mean Sq` = a$`Mean Sq`,
+         F = a$`F value`, P = a$`Pr(>F)`)
+}
+
+st10 <- bind_rows(
+  aov_table("Tmax",   mc_period, "Maximum temperature"),
+  aov_table("Tmin",   mc_period, "Minimum temperature"),
+  aov_table("Tmean",  mc_period, "Mean temperature"),
+  aov_table("Taccum", accum,     "Accumulated mean temperature")
+)
+st10_out <- st10 |>
+  mutate(across(c(`Sum Sq`, `Mean Sq`), ~ round(.x, 1)), F = round(F, 3), P = fmt_p(P))
+save_tab(st10_out, "SuppTable10_microclimate_ANOVA")
+knitr::kable(st10_out)
+```
+
+# Key results
+
+```{r key-results}
+coolest <- tree_temp |> slice_min(dev_Tmean, n = 1)
+warmest <- tree_temp |> slice_max(dev_Tmean, n = 1)
+producer_p <- st10 |> filter(grepl("Producer", Term)) |> pull(P)
+
+key02 <- tribble(
+  ~Statistic, ~Value,
+  "Trees with loggers", as.character(n_distinct(mc$Tree)),
+  "Range of tree deviations, mean temperature (°C)",
+    sprintf("%.2f to %.2f", min(tree_temp$dev_Tmean), max(tree_temp$dev_Tmean)),
+  "Coolest tree (dTmax / dTmean / dTmin)",
+    sprintf("Tree %s (%.2f / %.2f / %.2f)", coolest$Tree, coolest$dev_Tmax, coolest$dev_Tmean, coolest$dev_Tmin),
+  "Warmest tree (dTmax / dTmean / dTmin)",
+    sprintf("Tree %s (%.2f / %.2f / %.2f)", warmest$Tree, warmest$dev_Tmax, warmest$dev_Tmean, warmest$dev_Tmin),
+  "Spring mean temperature vs mean count (r, P, n)",
+    with(filter(clim_cor, grepl("Spring mean", Climate)), sprintf("%.2f, %.3f, %d", r, P, n)),
+  "Smallest P among producer terms (ST10)", sprintf("%.3f", min(producer_p))
+)
+save_tab(key02, "key_results_02_weather_microclimate")
+knitr::kable(key02)
+```
+
+```{r session}
+sessionInfo()
+```
